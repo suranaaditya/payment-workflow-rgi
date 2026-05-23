@@ -5,6 +5,8 @@ app_description = "Payment indent and manager approval system for ERPNext"
 app_email = "aditya.surana@thesvsgroup.org"
 app_license = "mit"
 
+after_install = "payment_indent.install.after_install"
+
 doc_events = {
     "File": {
         "on_trash": "payment_indent.payment_indent.doctype.payment_indent.payment_indent.prevent_payment_indent_pdf_delete",
