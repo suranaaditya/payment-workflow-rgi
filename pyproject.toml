@@ -9,6 +9,8 @@ readme = "README.md"
 dynamic = ["version"]
 dependencies = [
     # "frappe~=16.0.0" # Installed and managed by bench.
+    # pyotp ships with Frappe (used by built-in 2FA).
+    "qrcode[pil]>=7.4,<9",
 ]
 
 [build-system]
