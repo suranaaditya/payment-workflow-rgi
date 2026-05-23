@@ -1,0 +1,326 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-05-21 19:28:20.381430",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "party_reference_section",
+  "party_search",
+  "company",
+  "reference_type",
+  "reference_name",
+  "payment_terms",
+  "payment_terms_other",
+  "reference_doctype",
+  "party_type",
+  "party",
+  "party_name",
+  "purchase_invoice",
+  "purchase_order",
+  "work_order_doctype",
+  "work_order_reference",
+  "reference_snapshot_section",
+  "reference_date",
+  "reference_amount",
+  "reference_snapshot_column",
+  "outstanding_amount",
+  "balance_snapshot_section",
+  "party_balance",
+  "balance_type",
+  "balance_as_on_date",
+  "balance_snapshot_column",
+  "pending_payment_requests",
+  "net_available_payable",
+  "balance_fetched_on",
+  "amounts_section",
+  "requested_amount",
+  "payment_remark",
+  "approved_amount",
+  "amounts_column",
+  "row_status",
+  "accounting_remarks_section",
+  "cost_center",
+  "accounting_remarks_column",
+  "description",
+  "manager_remarks"
+ ],
+ "fields": [
+  {
+   "columns": 2,
+   "description": "Use Select Party on the parent form for a searchable picker.",
+   "fieldname": "party_search",
+   "fieldtype": "Autocomplete",
+   "in_list_view": 1,
+   "label": "Party"
+  },
+  {
+   "fieldname": "party_type",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Party Type",
+   "read_only": 1
+  },
+  {
+   "fieldname": "party",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Party ID",
+   "read_only": 1
+  },
+  {
+   "fieldname": "party_name",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Party Name",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "company",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "label": "Company",
+   "options": "Company",
+   "reqd": 1
+  },
+  {
+   "columns": 2,
+   "fieldname": "reference_type",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Reference Type",
+   "options": "\nPurchase Invoice\nPurchase Order\nWork Order\nNo Reference",
+   "reqd": 1
+  },
+  {
+   "fieldname": "reference_doctype",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Reference DocType",
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "columns": 2,
+   "depends_on": "eval:doc.reference_type!=\"No Reference\"",
+   "fieldname": "reference_name",
+   "fieldtype": "Dynamic Link",
+   "in_list_view": 1,
+   "label": "Reference",
+   "options": "reference_doctype"
+  },
+  {
+   "depends_on": "eval:doc.reference_type==\"Purchase Invoice\"",
+   "fieldname": "purchase_invoice",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Purchase Invoice",
+   "options": "Purchase Invoice"
+  },
+  {
+   "depends_on": "eval:doc.reference_type==\"Purchase Order\"",
+   "fieldname": "purchase_order",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Purchase Order",
+   "options": "Purchase Order"
+  },
+  {
+   "fieldname": "work_order_doctype",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Work Order DocType",
+   "options": "DocType",
+   "read_only": 1
+  },
+  {
+   "depends_on": "eval:doc.reference_type==\"Work Order\"",
+   "fieldname": "work_order_reference",
+   "fieldtype": "Dynamic Link",
+   "hidden": 1,
+   "label": "Work Order Reference",
+   "options": "work_order_doctype"
+  },
+  {
+   "fieldname": "reference_date",
+   "fieldtype": "Date",
+   "label": "Reference Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "reference_amount",
+   "fieldtype": "Currency",
+   "label": "Reference Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "outstanding_amount",
+   "fieldtype": "Currency",
+   "label": "Outstanding / Balance Amount",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "party_balance",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Party Balance",
+   "read_only": 1
+  },
+  {
+   "fieldname": "balance_type",
+   "fieldtype": "Select",
+   "label": "Balance Type",
+   "options": "Payable\nReceivable\nAdvance\nNil\nUnknown",
+   "read_only": 1
+  },
+  {
+   "fieldname": "balance_as_on_date",
+   "fieldtype": "Date",
+   "label": "Balance As On Date",
+   "read_only": 1
+  },
+  {
+   "fieldname": "balance_fetched_on",
+   "fieldtype": "Datetime",
+   "label": "Balance Fetched On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "pending_payment_requests",
+   "fieldtype": "Currency",
+   "label": "Pending Payment Requests",
+   "read_only": 1
+  },
+  {
+   "fieldname": "net_available_payable",
+   "fieldtype": "Currency",
+   "label": "Net Available Payable",
+   "read_only": 1
+  },
+  {
+   "columns": 1,
+   "fieldname": "requested_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Requested Amount",
+   "reqd": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "columns": 1,
+   "fieldname": "approved_amount",
+   "fieldtype": "Currency",
+   "in_list_view": 1,
+   "label": "Approved Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "cost_center",
+   "fieldtype": "Link",
+   "label": "Cost Center",
+   "options": "Cost Center"
+  },
+  {
+   "fieldname": "description",
+   "fieldtype": "Small Text",
+   "hidden": 1,
+   "label": "Description"
+  },
+  {
+   "allow_on_submit": 1,
+   "columns": 1,
+   "default": "Pending",
+   "fieldname": "row_status",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Row Status",
+   "options": "Pending\nApproved\nPartially Approved\nRejected\nHold",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "manager_remarks",
+   "fieldtype": "Small Text",
+   "label": "Manager Remarks",
+   "read_only": 1
+  },
+  {
+   "fieldname": "party_reference_section",
+   "fieldtype": "Section Break",
+   "label": "Party and Reference"
+  },
+  {
+   "fieldname": "reference_snapshot_section",
+   "fieldtype": "Section Break",
+   "label": "Reference Snapshot"
+  },
+  {
+   "fieldname": "reference_snapshot_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "balance_snapshot_section",
+   "fieldtype": "Section Break",
+   "label": "Balance Snapshot"
+  },
+  {
+   "fieldname": "balance_snapshot_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "amounts_section",
+   "fieldtype": "Section Break",
+   "label": "Requested and Approved Amounts"
+  },
+  {
+   "fieldname": "amounts_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "accounting_remarks_section",
+   "fieldtype": "Section Break",
+   "label": "Accounting and Remarks"
+  },
+  {
+   "fieldname": "accounting_remarks_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "payment_terms",
+   "fieldtype": "Select",
+   "in_standard_filter": 1,
+   "label": "Payment Terms",
+   "options": "\n100% advance\n50% advance\n30% advance\n20% advance\n10% advance\nMaterial Received\nAgainst Proforma Invoice\nOthers"
+  },
+  {
+   "depends_on": "eval:doc.payment_terms==\"Others\"",
+   "fieldname": "payment_terms_other",
+   "fieldtype": "Data",
+   "label": "Other Payment Terms",
+   "mandatory_depends_on": "eval:doc.payment_terms==\"Others\""
+  },
+  {
+   "fieldname": "payment_remark",
+   "fieldtype": "Small Text",
+   "label": "Payment Remark"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "istable": 1,
+ "links": [],
+ "modified": "2026-05-23 11:12:06.109996",
+ "modified_by": "Administrator",
+ "module": "Payment Indent",
+ "name": "Payment Indent Item",
+ "owner": "Administrator",
+ "permissions": [],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

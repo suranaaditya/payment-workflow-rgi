@@ -1,0 +1,38 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-05-21 19:34:51.563525",
+  "name": "Pending Manager Approval",
+  "style": "Warning",
+  "workflow_state_name": "Pending Manager Approval"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-05-21 19:34:51.564434",
+  "name": "Manager Approved",
+  "style": "Success",
+  "workflow_state_name": "Manager Approved"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-05-21 19:34:51.565261",
+  "name": "Manager Rejected",
+  "style": "Danger",
+  "workflow_state_name": "Manager Rejected"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow State",
+  "icon": "",
+  "modified": "2026-05-21 19:34:51.566032",
+  "name": "Returned for Correction",
+  "style": "Info",
+  "workflow_state_name": "Returned for Correction"
+ }
+]

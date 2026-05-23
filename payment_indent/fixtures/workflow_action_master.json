@@ -1,0 +1,37 @@
+[
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-05-21 19:34:51.567473",
+  "name": "Submit for Manager Approval",
+  "workflow_action_name": "Submit for Manager Approval"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-05-21 19:34:51.570448",
+  "name": "Resubmit for Manager Approval",
+  "workflow_action_name": "Resubmit for Manager Approval"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-05-21 19:34:51.573210",
+  "name": "Return for Correction",
+  "workflow_action_name": "Return for Correction"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-05-21 19:34:51.572401",
+  "name": "Reject",
+  "workflow_action_name": "Reject"
+ },
+ {
+  "docstatus": 0,
+  "doctype": "Workflow Action Master",
+  "modified": "2026-05-21 19:34:51.571443",
+  "name": "Approve",
+  "workflow_action_name": "Approve"
+ }
+]

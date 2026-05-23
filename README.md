@@ -1,33 +1,46 @@
-### Payment Indent
+# Payment Indent
 
-Payment indent and manager approval system for ERPNext
+Portable Frappe / ERPNext v16 app for payment indent creation, manager approval, and approval PDF generation.
 
-### Installation
+## Features
 
-You can install this app using the [bench](https://github.com/frappe/bench) CLI:
+- Row-wise payment requests for multiple parties and companies in one Payment Indent
+- Party picker across Supplier, Customer, Employee, and ad-hoc Other parties
+- Purchase Invoice, Purchase Order, configurable Work Order, and No Reference lines
+- Company-wise party balance snapshot on each line
+- Payment terms and payment remarks on each line
+- Creator and approver roles with workflow-based approval
+- Manager approval review dialog for swift line-wise approval
+- Landscape Payment Indent Approval Report PDF
+- Generated approval PDFs protected from deletion
+
+## Roles
+
+- Payment Creator
+- Payment Approver
+- Payment Indent Admin
+
+## Installation
+
+From a Frappe bench:
 
 ```bash
-cd $PATH_TO_YOUR_BENCH
-bench get-app $URL_OF_THIS_REPO --branch version-16
-bench install-app payment_indent
+bench get-app https://github.com/suranaaditya/payment-workflow-rgi.git --branch version-16
+bench --site your-site.local install-app payment_indent
+bench --site your-site.local migrate
+bench --site your-site.local clear-cache
 ```
 
-### Contributing
+## Configuration
 
-This app uses `pre-commit` for code formatting and linting. Please [install pre-commit](https://pre-commit.com/#installation) and enable it for this repository:
+Open **Payment Indent Settings** after installation.
 
-```bash
-cd apps/payment_indent
-pre-commit install
-```
+Work Order integration is optional and configurable. Set the Work Order DocType and field mappings there if the deployment uses a custom work order document.
 
-Pre-commit is configured to use the following tools for checking and formatting your code:
+## Scope
 
-- ruff
-- eslint
-- prettier
-- pyupgrade
+This app currently stops at manager approval and PDF generation. It does not create Payment Entry, Payment Order, Journal Entry, GL Entry, or any accounting voucher.
 
-### License
+## License
 
-mit
+MIT

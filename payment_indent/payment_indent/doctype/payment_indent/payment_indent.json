@@ -1,0 +1,262 @@
+{
+ "actions": [],
+ "autoname": "naming_series:",
+ "creation": "2026-05-21 19:28:20.482905",
+ "doctype": "DocType",
+ "editable_grid": 1,
+ "engine": "InnoDB",
+ "field_order": [
+  "request_details_section",
+  "naming_series",
+  "posting_date",
+  "request_details_column",
+  "requested_by",
+  "priority",
+  "payment_lines_section",
+  "items",
+  "totals_section",
+  "total_requested_amount",
+  "totals_column",
+  "total_approved_amount",
+  "manager_approval_section",
+  "manager",
+  "manager_remarks",
+  "manager_approval_column",
+  "manager_approved_by",
+  "manager_approved_on",
+  "document_status_section",
+  "workflow_state",
+  "pdf_generated",
+  "document_status_column",
+  "pdf_attachment",
+  "declaration_note",
+  "amended_from"
+ ],
+ "fields": [
+  {
+   "default": "PAY-IND-.YYYY.-.#####",
+   "fieldname": "naming_series",
+   "fieldtype": "Select",
+   "in_list_view": 1,
+   "label": "Naming Series",
+   "options": "PAY-IND-.YYYY.-.#####",
+   "reqd": 1
+  },
+  {
+   "default": "Today",
+   "fieldname": "posting_date",
+   "fieldtype": "Date",
+   "in_list_view": 1,
+   "label": "Posting Date",
+   "reqd": 1
+  },
+  {
+   "default": "__user",
+   "fieldname": "requested_by",
+   "fieldtype": "Link",
+   "label": "Requested By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "default": "Normal",
+   "fieldname": "priority",
+   "fieldtype": "Select",
+   "label": "Priority",
+   "options": "Low\nNormal\nHigh\nUrgent"
+  },
+  {
+   "fieldname": "items",
+   "fieldtype": "Table",
+   "label": "Payment Indent Items",
+   "options": "Payment Indent Item",
+   "reqd": 1
+  },
+  {
+   "fieldname": "totals_section",
+   "fieldtype": "Section Break",
+   "label": "Totals"
+  },
+  {
+   "fieldname": "total_requested_amount",
+   "fieldtype": "Currency",
+   "label": "Total Requested Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "total_approved_amount",
+   "fieldtype": "Currency",
+   "label": "Total Approved Amount",
+   "read_only": 1
+  },
+  {
+   "fieldname": "manager",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Manager",
+   "options": "User"
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "manager_remarks",
+   "fieldtype": "Small Text",
+   "label": "Manager Remarks",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "manager_approved_by",
+   "fieldtype": "Link",
+   "label": "Manager Approved By",
+   "options": "User",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "manager_approved_on",
+   "fieldtype": "Datetime",
+   "label": "Manager Approved On",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "workflow_state",
+   "fieldtype": "Data",
+   "label": "Workflow State",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "default": "0",
+   "fieldname": "pdf_generated",
+   "fieldtype": "Check",
+   "label": "PDF Generated",
+   "read_only": 1
+  },
+  {
+   "allow_on_submit": 1,
+   "fieldname": "pdf_attachment",
+   "fieldtype": "Attach",
+   "label": "PDF Attachment",
+   "read_only": 1
+  },
+  {
+   "default": "This report confirms manager-level approval only. Accounting verification and payment processing shall be completed separately as per the institution's payment procedure.",
+   "fieldname": "declaration_note",
+   "fieldtype": "Small Text",
+   "label": "Declaration Note",
+   "read_only": 1
+  },
+  {
+   "fieldname": "amended_from",
+   "fieldtype": "Link",
+   "label": "Amended From",
+   "no_copy": 1,
+   "options": "Payment Indent",
+   "print_hide": 1,
+   "read_only": 1,
+   "search_index": 1
+  },
+  {
+   "fieldname": "request_details_section",
+   "fieldtype": "Section Break",
+   "label": "Request Details"
+  },
+  {
+   "fieldname": "request_details_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "payment_lines_section",
+   "fieldtype": "Section Break",
+   "label": "Payment Lines"
+  },
+  {
+   "fieldname": "totals_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "manager_approval_section",
+   "fieldtype": "Section Break",
+   "label": "Manager Approval"
+  },
+  {
+   "fieldname": "manager_approval_column",
+   "fieldtype": "Column Break"
+  },
+  {
+   "fieldname": "document_status_section",
+   "fieldtype": "Section Break",
+   "label": "Document Status and PDF"
+  },
+  {
+   "fieldname": "document_status_column",
+   "fieldtype": "Column Break"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "is_submittable": 1,
+ "links": [],
+ "modified": "2026-05-22 18:40:07.816198",
+ "modified_by": "Administrator",
+ "module": "Payment Indent",
+ "name": "Payment Indent",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "email": 1,
+   "if_owner": 1,
+   "print": 1,
+   "read": 1,
+   "role": "Payment Creator",
+   "write": 1
+  },
+  {
+   "email": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Payment Approver",
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "Payment Indent Admin",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  },
+  {
+   "amend": 1,
+   "cancel": 1,
+   "create": 1,
+   "delete": 1,
+   "email": 1,
+   "export": 1,
+   "print": 1,
+   "read": 1,
+   "report": 1,
+   "role": "System Manager",
+   "share": 1,
+   "submit": 1,
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

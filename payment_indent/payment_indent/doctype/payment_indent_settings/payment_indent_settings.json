@@ -1,0 +1,153 @@
+{
+ "actions": [],
+ "allow_rename": 1,
+ "creation": "2026-05-21 19:28:20.237289",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "require_attachment_for_no_reference",
+  "attachment_mandatory_above_amount",
+  "allow_request_above_party_balance",
+  "auto_generate_pdf_on_manager_approval",
+  "allow_self_approval",
+  "default_declaration_note",
+  "work_order_integration_section",
+  "work_order_doctype",
+  "work_order_party_field",
+  "work_order_company_field",
+  "work_order_amount_field",
+  "work_order_balance_field",
+  "work_order_date_field",
+  "work_order_status_field",
+  "work_order_required_status",
+  "work_order_description_field"
+ ],
+ "fields": [
+  {
+   "default": "1",
+   "fieldname": "require_attachment_for_no_reference",
+   "fieldtype": "Check",
+   "label": "Require Attachment for No Reference Payment"
+  },
+  {
+   "default": "25000",
+   "fieldname": "attachment_mandatory_above_amount",
+   "fieldtype": "Currency",
+   "label": "Attachment Mandatory Above Amount"
+  },
+  {
+   "default": "1",
+   "fieldname": "allow_request_above_party_balance",
+   "fieldtype": "Check",
+   "label": "Allow Request Above Party Balance"
+  },
+  {
+   "default": "1",
+   "fieldname": "auto_generate_pdf_on_manager_approval",
+   "fieldtype": "Check",
+   "label": "Auto Generate PDF on Manager Approval"
+  },
+  {
+   "default": "0",
+   "fieldname": "allow_self_approval",
+   "fieldtype": "Check",
+   "label": "Allow Self Approval"
+  },
+  {
+   "default": "This report confirms manager-level approval only. Accounting verification and payment processing shall be completed separately as per the institution's payment procedure.",
+   "fieldname": "default_declaration_note",
+   "fieldtype": "Small Text",
+   "label": "Default Declaration Note"
+  },
+  {
+   "fieldname": "work_order_integration_section",
+   "fieldtype": "Section Break",
+   "label": "Work Order Integration"
+  },
+  {
+   "fieldname": "work_order_doctype",
+   "fieldtype": "Link",
+   "label": "Work Order DocType",
+   "options": "DocType"
+  },
+  {
+   "fieldname": "work_order_party_field",
+   "fieldtype": "Data",
+   "label": "Work Order Party Field"
+  },
+  {
+   "fieldname": "work_order_company_field",
+   "fieldtype": "Data",
+   "label": "Work Order Company Field"
+  },
+  {
+   "fieldname": "work_order_amount_field",
+   "fieldtype": "Data",
+   "label": "Work Order Amount Field"
+  },
+  {
+   "fieldname": "work_order_balance_field",
+   "fieldtype": "Data",
+   "label": "Work Order Balance Field"
+  },
+  {
+   "fieldname": "work_order_date_field",
+   "fieldtype": "Data",
+   "label": "Work Order Date Field"
+  },
+  {
+   "fieldname": "work_order_status_field",
+   "fieldtype": "Data",
+   "label": "Work Order Status Field"
+  },
+  {
+   "description": "Optional. Example: Approved or Submitted.",
+   "fieldname": "work_order_required_status",
+   "fieldtype": "Data",
+   "label": "Required Work Order Status"
+  },
+  {
+   "fieldname": "work_order_description_field",
+   "fieldtype": "Data",
+   "label": "Work Order Description Field"
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 1,
+ "issingle": 1,
+ "links": [],
+ "modified": "2026-05-22 15:19:58.946852",
+ "modified_by": "Administrator",
+ "module": "Payment Indent",
+ "name": "Payment Indent Settings",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "read": 1,
+   "role": "Payment Creator"
+  },
+  {
+   "read": 1,
+   "role": "Payment Approver"
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "Payment Indent Admin",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "creation",
+ "sort_order": "DESC",
+ "states": []
+}

@@ -1,0 +1,41 @@
+[
+ {
+  "desk_access": 1,
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Role",
+  "home_page": null,
+  "is_custom": 0,
+  "modified": "2026-05-22 15:16:47.019895",
+  "name": "Payment Indent Admin",
+  "restrict_to_domain": null,
+  "role_name": "Payment Indent Admin",
+  "two_factor_auth": 0
+ },
+ {
+  "desk_access": 1,
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Role",
+  "home_page": null,
+  "is_custom": 0,
+  "modified": "2026-05-22 15:16:46.816733",
+  "name": "Payment Creator",
+  "restrict_to_domain": null,
+  "role_name": "Payment Creator",
+  "two_factor_auth": 0
+ },
+ {
+  "desk_access": 1,
+  "disabled": 0,
+  "docstatus": 0,
+  "doctype": "Role",
+  "home_page": null,
+  "is_custom": 0,
+  "modified": "2026-05-22 15:16:47.017165",
+  "name": "Payment Approver",
+  "restrict_to_domain": null,
+  "role_name": "Payment Approver",
+  "two_factor_auth": 0
+ }
+]
