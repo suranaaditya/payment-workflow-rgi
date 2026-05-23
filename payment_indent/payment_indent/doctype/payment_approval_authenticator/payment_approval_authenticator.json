@@ -1,0 +1,111 @@
+{
+ "actions": [],
+ "allow_rename": 0,
+ "autoname": "field:user",
+ "creation": "2026-05-23 10:00:00.000000",
+ "doctype": "DocType",
+ "engine": "InnoDB",
+ "field_order": [
+  "user",
+  "enabled",
+  "enrolled_on",
+  "otp_secret",
+  "last_used_token",
+  "last_used_on"
+ ],
+ "fields": [
+  {
+   "fieldname": "user",
+   "fieldtype": "Link",
+   "in_list_view": 1,
+   "in_standard_filter": 1,
+   "label": "User",
+   "options": "User",
+   "reqd": 1,
+   "unique": 1
+  },
+  {
+   "default": "0",
+   "description": "Set by the enrollment flow. Do not edit manually.",
+   "fieldname": "enabled",
+   "fieldtype": "Check",
+   "in_list_view": 1,
+   "label": "Enabled",
+   "read_only": 1
+  },
+  {
+   "fieldname": "enrolled_on",
+   "fieldtype": "Datetime",
+   "label": "Enrolled On",
+   "read_only": 1
+  },
+  {
+   "fieldname": "otp_secret",
+   "fieldtype": "Password",
+   "hidden": 1,
+   "label": "OTP Secret",
+   "no_copy": 1,
+   "print_hide": 1,
+   "read_only": 1,
+   "report_hide": 1
+  },
+  {
+   "fieldname": "last_used_token",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Last Used Token",
+   "no_copy": 1,
+   "print_hide": 1,
+   "read_only": 1,
+   "report_hide": 1
+  },
+  {
+   "fieldname": "last_used_on",
+   "fieldtype": "Datetime",
+   "hidden": 1,
+   "label": "Last Used On",
+   "no_copy": 1,
+   "print_hide": 1,
+   "read_only": 1,
+   "report_hide": 1
+  }
+ ],
+ "grid_page_length": 50,
+ "index_web_pages_for_search": 0,
+ "links": [],
+ "modified": "2026-05-23 10:00:00.000000",
+ "modified_by": "Administrator",
+ "module": "Payment Indent",
+ "name": "Payment Approval Authenticator",
+ "naming_rule": "By fieldname",
+ "owner": "Administrator",
+ "permissions": [
+  {
+   "create": 1,
+   "if_owner": 1,
+   "read": 1,
+   "role": "Payment Approver",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "Payment Indent Admin",
+   "write": 1
+  },
+  {
+   "create": 1,
+   "delete": 1,
+   "read": 1,
+   "role": "System Manager",
+   "write": 1
+  }
+ ],
+ "row_format": "Dynamic",
+ "rows_threshold_for_grid_search": 20,
+ "sort_field": "modified",
+ "sort_order": "DESC",
+ "states": [],
+ "track_changes": 1
+}

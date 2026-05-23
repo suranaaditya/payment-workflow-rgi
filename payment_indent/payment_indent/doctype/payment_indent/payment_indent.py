@@ -6,7 +6,7 @@ import re
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import flt, getdate, now_datetime, today
+from frappe.utils import cint, flt, getdate, now_datetime, today
 
 
 PAYMENT_CREATOR_ROLE = "Payment Creator"
@@ -33,10 +33,22 @@ class PaymentIndent(Document):
             self.refresh_party_balances()
             self.calculate_totals()
         if action == "Approve":
+            self._verify_approval_otp()
             self.validate_manager_approval()
             self.set_manager_approval_details()
         elif action == "Reject" and not self.manager_remarks:
             frappe.throw(_("Manager Remarks are required before rejecting a Payment Indent."))
+
+    def _verify_approval_otp(self):
+        settings = get_settings()
+        if not cint(getattr(settings, "require_approval_otp", 0)):
+            return
+        from payment_indent.payment_indent.doctype.payment_approval_authenticator.payment_approval_authenticator import (
+            verify_approval_token,
+        )
+
+        token = frappe.form_dict.get("approval_otp") or frappe.form_dict.get("otp")
+        verify_approval_token(frappe.session.user, token)
 
     def before_submit(self):
         self.refresh_party_balances()

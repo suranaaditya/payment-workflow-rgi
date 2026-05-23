@@ -11,6 +11,9 @@
   "auto_generate_pdf_on_manager_approval",
   "allow_self_approval",
   "default_declaration_note",
+  "approval_otp_section",
+  "require_approval_otp",
+  "otp_issuer_name",
   "work_order_integration_section",
   "work_order_doctype",
   "work_order_party_field",
@@ -58,6 +61,25 @@
    "fieldname": "default_declaration_note",
    "fieldtype": "Small Text",
    "label": "Default Declaration Note"
+  },
+  {
+   "fieldname": "approval_otp_section",
+   "fieldtype": "Section Break",
+   "label": "Approval OTP"
+  },
+  {
+   "default": "1",
+   "description": "When enabled, managers must enter a 6-digit code from their authenticator app to approve a Payment Indent.",
+   "fieldname": "require_approval_otp",
+   "fieldtype": "Check",
+   "label": "Require Approval OTP"
+  },
+  {
+   "default": "RGI Payment Indent",
+   "description": "Name shown for this app inside the authenticator app (Google Authenticator, Authy, etc.).",
+   "fieldname": "otp_issuer_name",
+   "fieldtype": "Data",
+   "label": "OTP Issuer Name"
   },
   {
    "fieldname": "work_order_integration_section",

@@ -4,6 +4,9 @@
 const PAYMENT_INDENT_METHOD =
     "payment_indent.payment_indent.doctype.payment_indent.payment_indent";
 
+const AUTHENTICATOR_METHOD =
+    "payment_indent.payment_indent.doctype.payment_approval_authenticator.payment_approval_authenticator";
+
 const REFERENCE_TYPE_OPTIONS = [
     "",
     "Purchase Invoice",
@@ -77,6 +80,258 @@ function can_edit_approval_fields(frm) {
     const roles = frappe.user_roles || [];
     const is_approver = roles.includes("Payment Approver") || roles.includes("Payment Indent Admin") || roles.includes("System Manager");
     return is_approver && frm.doc.workflow_state === "Pending Manager Approval";
+}
+
+function hide_native_workflow_approve(frm) {
+    const labels = new Set(["Approve", __("Approve")]);
+    const hide_in = ($scope) => {
+        if (!$scope || !$scope.length) return;
+        $scope.find("a, button").each(function () {
+            const text = ($(this).text() || "").trim();
+            if (labels.has(text)) {
+                $(this).closest("li, .menu-item").hide();
+            }
+        });
+    };
+    const hide = () => {
+        const $wrapper = frm.page && frm.page.wrapper ? $(frm.page.wrapper) : null;
+        hide_in($wrapper && $wrapper.find(".actions-btn-group"));
+        hide_in($wrapper && $wrapper.find(".menu-btn-group"));
+        hide_in(frm.page && frm.page.menu);
+    };
+    hide();
+    setTimeout(hide, 200);
+    setTimeout(hide, 600);
+    setTimeout(hide, 1500);
+}
+
+function get_approval_enrollment_status() {
+    return frappe.call({
+        method: `${AUTHENTICATOR_METHOD}.get_enrollment_status`,
+    }).then((r) => r.message || {});
+}
+
+function open_approval_enrollment_dialog() {
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        const dialog = new frappe.ui.Dialog({
+            title: __("Set up Approval Authenticator"),
+            fields: [
+                {
+                    fieldname: "intro",
+                    fieldtype: "HTML",
+                    options: `<div class="text-muted small">${__(
+                        "Scan the QR code with Google Authenticator (or any TOTP app), then enter the 6-digit code shown in the app to confirm."
+                    )}</div>`,
+                },
+                { fieldname: "qr_html", fieldtype: "HTML" },
+                {
+                    fieldname: "token",
+                    label: __("6-digit Code"),
+                    fieldtype: "Data",
+                    reqd: 1,
+                    description: __("Enter the code currently shown in your authenticator app."),
+                },
+            ],
+            primary_action_label: __("Confirm and Enable"),
+            primary_action(values) {
+                const token = (values.token || "").trim();
+                if (!/^\d{6}$/.test(token)) {
+                    frappe.msgprint(__("Enter the 6-digit numeric code."));
+                    return;
+                }
+                frappe.call({
+                    method: `${AUTHENTICATOR_METHOD}.confirm_enrollment`,
+                    args: { token },
+                    freeze: true,
+                    freeze_message: __("Verifying authenticator"),
+                }).then((r) => {
+                    if (r.message && r.message.enrolled) {
+                        frappe.show_alert({
+                            message: __("Approval Authenticator enabled."),
+                            indicator: "green",
+                        });
+                        finish(true);
+                        dialog.hide();
+                    }
+                });
+            },
+        });
+        dialog.onhide = () => finish(false);
+
+        frappe.call({
+            method: `${AUTHENTICATOR_METHOD}.start_enrollment`,
+            freeze: true,
+            freeze_message: __("Preparing authenticator"),
+        }).then((r) => {
+            const data = r.message || {};
+            const qr_wrapper = dialog.fields_dict.qr_html.$wrapper;
+            const qr_img = data.qr_image
+                ? `<img src="${data.qr_image}" alt="QR code" style="max-width: 220px; display: block; margin: 8px auto;" />`
+                : `<div class="text-muted small">${__("QR image unavailable. Use the manual key below.")}</div>`;
+            qr_wrapper.html(`
+                <div style="text-align: center;">${qr_img}</div>
+                <div class="text-muted small" style="text-align: center; margin-bottom: 8px;">
+                    ${__("Issuer")}: <strong>${frappe.utils.escape_html(data.issuer || "")}</strong> &middot;
+                    ${__("Account")}: <strong>${frappe.utils.escape_html(data.account || "")}</strong>
+                </div>
+                <div class="text-muted small" style="text-align: center;">
+                    ${__("Manual key")}: <code>${frappe.utils.escape_html(data.manual_key || "")}</code>
+                </div>
+            `);
+            dialog.show();
+        });
+    });
+}
+
+function add_approval_security_buttons(frm) {
+    const roles = frappe.user_roles || [];
+    const can_manage =
+        roles.includes("Payment Approver") ||
+        roles.includes("Payment Indent Admin") ||
+        roles.includes("System Manager");
+    if (!can_manage) return;
+
+    get_approval_enrollment_status().then((status) => {
+        if (!status.enrolled) {
+            frm.add_custom_button(
+                __("Set up Approval Authenticator"),
+                () => open_approval_enrollment_dialog(),
+                __("Approval Security")
+            );
+            return;
+        }
+        frm.add_custom_button(
+            __("Reset Authenticator"),
+            () => {
+                frappe.confirm(
+                    __("This removes your current authenticator. You'll need to scan a new QR to approve again. Continue?"),
+                    () => {
+                        frappe.call({
+                            method: `${AUTHENTICATOR_METHOD}.reset_my_authenticator`,
+                            freeze: true,
+                            freeze_message: __("Resetting authenticator"),
+                        }).then(() => {
+                            frappe.show_alert({
+                                message: __("Authenticator reset. Scan the new QR to re-enroll."),
+                                indicator: "orange",
+                            });
+                            open_approval_enrollment_dialog();
+                        });
+                    }
+                );
+            },
+            __("Approval Security")
+        );
+    });
+}
+
+function ensure_approval_enrollment() {
+    return get_approval_enrollment_status().then((status) => {
+        if (status.enrolled) return status;
+        frappe.msgprint({
+            title: __("Authenticator Required"),
+            message: __("Set up your Approval Authenticator before approving."),
+            indicator: "orange",
+        });
+        return open_approval_enrollment_dialog().then((enrolled) => enrolled ? get_approval_enrollment_status() : null);
+    });
+}
+
+function prompt_for_approval_otp(context) {
+    context = context || {};
+    return new Promise((resolve) => {
+        let settled = false;
+        const finish = (value) => {
+            if (settled) return;
+            settled = true;
+            resolve(value);
+        };
+        const dialog = new frappe.ui.Dialog({
+            title: __("Approval Code Required"),
+            fields: [
+                { fieldname: "header_html", fieldtype: "HTML" },
+                {
+                    fieldname: "approval_otp",
+                    label: __("6-digit Code"),
+                    fieldtype: "Data",
+                    reqd: 1,
+                },
+            ],
+            primary_action_label: __("Approve"),
+            primary_action(values) {
+                submit_token(values.approval_otp);
+            },
+        });
+        dialog.onhide = () => finish(null);
+
+        const submit_token = (raw) => {
+            const token = (raw || "").trim();
+            if (!/^\d{6}$/.test(token)) {
+                dialog.$wrapper.find(".otp-input-error").show();
+                return;
+            }
+            finish(token);
+            dialog.hide();
+        };
+
+        dialog.show();
+        dialog.$wrapper.find(".modal-dialog").css("max-width", "440px");
+
+        const account = frappe.utils.escape_html(context.account_label || "");
+        const issuer = frappe.utils.escape_html(context.issuer || "RGI Payment Indent");
+        dialog.fields_dict.header_html.$wrapper.html(`
+            <style>
+                .otp-prompt-header { text-align: center; padding: 4px 0 14px; }
+                .otp-prompt-icon { display: inline-flex; align-items: center; justify-content: center;
+                    width: 44px; height: 44px; border-radius: 999px;
+                    background: var(--gray-100); color: var(--text-color);
+                    margin-bottom: 10px; }
+                .otp-prompt-icon svg { width: 22px; height: 22px; }
+                .otp-prompt-subtitle { color: var(--text-muted); font-size: 12px; margin-top: 2px; }
+                .otp-prompt-subtitle strong { color: var(--text-color); }
+                .otp-input-wrapper input { text-align: center; font-size: 22px;
+                    letter-spacing: 10px; font-family: var(--font-stack-monospace, monospace);
+                    height: 52px; padding-left: 10px; }
+                .otp-input-error { color: var(--red-500); font-size: 12px; margin-top: 6px; display: none; }
+            </style>
+            <div class="otp-prompt-header">
+                <div class="otp-prompt-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"
+                        stroke-linecap="round" stroke-linejoin="round">
+                        <rect x="3" y="11" width="18" height="11" rx="2" />
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4" />
+                    </svg>
+                </div>
+                <div>${__("Enter the 6-digit code from your authenticator app to approve this Payment Indent.")}</div>
+                ${account ? `<div class="otp-prompt-subtitle">${__("Approving as")} <strong>${account}</strong> &middot; ${issuer}</div>` : ""}
+            </div>
+        `);
+
+        const $input = dialog.fields_dict.approval_otp.$input;
+        const $error = dialog.$wrapper.find(".otp-input-error");
+        if ($input && $input.length) {
+            $input
+                .attr("inputmode", "numeric")
+                .attr("autocomplete", "one-time-code")
+                .attr("maxlength", "6")
+                .attr("pattern", "[0-9]{6}");
+            $input.closest(".frappe-control").addClass("otp-input-wrapper");
+            $input.after('<div class="otp-input-error">' + __("Enter the 6-digit numeric code.") + "</div>");
+            $input.on("input", function () {
+                const digits = (this.value || "").replace(/\D/g, "").slice(0, 6);
+                if (digits !== this.value) this.value = digits;
+                $error.hide();
+                if (digits.length === 6) submit_token(digits);
+            });
+            setTimeout(() => $input.focus(), 60);
+        }
+    });
 }
 
 function set_approval_field_access(frm) {
@@ -504,37 +759,53 @@ function open_approval_workbench(frm) {
 
     const save_review = (approve_after_save) => {
         const decisions = get_review_rows();
-        frappe.call({
-            method: `${PAYMENT_INDENT_METHOD}.save_approval_review`,
-            args: {
-                payment_indent_name: frm.doc.name,
-                decisions,
-                manager_remarks: dialog.get_value("manager_remarks"),
-            },
-            freeze: true,
-            freeze_message: approve_after_save ? __("Saving review and approving") : __("Saving approval review"),
-            callback() {
-                if (!approve_after_save) {
-                    frappe.show_alert({ message: __("Approval review saved"), indicator: "green" });
-                    frm.reload_doc();
-                    dialog.hide();
-                    return;
-                }
-
-                frappe.call({
-                    method: "frappe.model.workflow.apply_workflow",
-                    args: {
-                        doc: frm.doc,
-                        action: "Approve",
-                    },
-                    freeze: true,
-                    freeze_message: __("Approving Payment Indent"),
-                    callback() {
-                        dialog.hide();
+        const run_save = (approval_otp) => {
+            frappe.call({
+                method: `${PAYMENT_INDENT_METHOD}.save_approval_review`,
+                args: {
+                    payment_indent_name: frm.doc.name,
+                    decisions,
+                    manager_remarks: dialog.get_value("manager_remarks"),
+                },
+                freeze: true,
+                freeze_message: approve_after_save ? __("Saving review and approving") : __("Saving approval review"),
+                callback() {
+                    if (!approve_after_save) {
+                        frappe.show_alert({ message: __("Approval review saved"), indicator: "green" });
                         frm.reload_doc();
-                    },
-                });
-            },
+                        dialog.hide();
+                        return;
+                    }
+
+                    frappe.call({
+                        method: "frappe.model.workflow.apply_workflow",
+                        args: {
+                            doc: frm.doc,
+                            action: "Approve",
+                            approval_otp,
+                        },
+                        freeze: true,
+                        freeze_message: __("Approving Payment Indent"),
+                        callback() {
+                            dialog.hide();
+                            frm.reload_doc();
+                        },
+                    });
+                },
+            });
+        };
+
+        if (!approve_after_save) {
+            run_save(null);
+            return;
+        }
+
+        ensure_approval_enrollment().then((status) => {
+            if (!status) return;
+            prompt_for_approval_otp(status).then((token) => {
+                if (!token) return;
+                run_save(token);
+            });
         });
     };
 
@@ -1171,10 +1442,13 @@ frappe.ui.form.on("Payment Indent", {
         set_approval_field_access(frm);
         schedule_clear_default_company(frm);
         configure_payment_line_grid(frm);
+        hide_native_workflow_approve(frm);
 
         if (can_edit_approval_fields(frm)) {
             frm.add_custom_button(__("Review & Approve Payments"), () => open_approval_workbench(frm));
         }
+
+        add_approval_security_buttons(frm);
 
         if (["Draft", "Returned for Correction", "Pending Manager Approval"].includes(frm.doc.workflow_state)) {
             frm.add_custom_button(__("Add Payment Line"), () => open_payment_line_dialog(frm));
