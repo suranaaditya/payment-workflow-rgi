@@ -239,6 +239,36 @@ function payment_line_reference(row) {
     return row.reference_name || row.purchase_invoice || row.purchase_order || row.work_order_reference || "";
 }
 
+function payment_line_reference_doctype(row) {
+    if (row.reference_doctype) return row.reference_doctype;
+    if (row.reference_type === "Purchase Invoice") return "Purchase Invoice";
+    if (row.reference_type === "Purchase Order") return "Purchase Order";
+    if (row.reference_type === "Work Order") return row.work_order_doctype;
+    return "";
+}
+
+function payment_line_reference_html(row) {
+    const reference = payment_line_reference(row);
+    if (!reference) {
+        return `<div class="text-muted small">${__("No Reference")}</div>`;
+    }
+
+    const reference_doctype = payment_line_reference_doctype(row);
+    if (!reference_doctype) {
+        return `<div class="text-muted small">${html_escape(reference)}</div>`;
+    }
+
+    return `
+        <a href="/app/${encodeURIComponent(frappe.router.slug(reference_doctype))}/${encodeURIComponent(reference)}"
+            class="payment-reference-link"
+            target="_blank"
+            rel="noopener noreferrer"
+            title="${__("Open reference document")}">
+            ${html_escape(reference)}
+        </a>
+    `;
+}
+
 function open_approval_workbench(frm) {
     if (!can_edit_approval_fields(frm)) {
         frappe.msgprint(__("Only Payment Approvers can review this Payment Indent."));
@@ -296,7 +326,7 @@ function open_approval_workbench(frm) {
                         </td>
                         <td>
                             <div>${html_escape(row.reference_type)}</div>
-                            <div class="text-muted small">${html_escape(payment_line_reference(row) || "No Reference")}</div>
+                            <div class="small">${payment_line_reference_html(row)}</div>
                             <div class="text-muted small">${html_escape(row.payment_terms === "Others" ? row.payment_terms_other : row.payment_terms)}</div>
                         </td>
                         <td class="text-right">
@@ -341,6 +371,7 @@ function open_approval_workbench(frm) {
                 .payment-approval-summary .metric strong { display: block; font-size: 15px; }
                 .payment-approval-workbench tr.needs-remarks td { background: #fff6e5; }
                 .payment-approval-workbench tr.invalid-decision td { background: #fff0f0; }
+                .payment-reference-link { font-weight: 600; text-decoration: underline; }
             </style>
             <div class="payment-approval-summary"></div>
             <div class="payment-approval-workbench">
