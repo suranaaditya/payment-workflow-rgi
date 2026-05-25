@@ -11,6 +11,9 @@ dependencies = [
     # "frappe~=16.0.0" # Installed and managed by bench.
     # pyotp ships with Frappe (used by built-in 2FA).
     "qrcode[pil]>=7.4,<9",
+    # PyMuPDF: used to rasterize the approval PDF post-print so it
+    # cannot be click-to-edited. Self-contained, no system deps.
+    "pymupdf>=1.24,<2",
 ]
 
 [build-system]

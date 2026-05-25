@@ -1,0 +1,113 @@
+{% extends "templates/web.html" %}
+
+{% block title %}{{ _("Payment Indent Verification") }}{% endblock %}
+
+{% block page_content %}
+<style>
+    .pv-wrap { max-width: 920px; margin: 18px auto; padding: 0 14px; font-family: var(--font-stack, Arial, sans-serif); color: #1f2933; }
+    .pv-badge { display: inline-block; padding: 4px 10px; border-radius: 999px; font-size: 12px; font-weight: 600; letter-spacing: .3px; }
+    .pv-badge.ok { background: #e3f8e8; color: #207544; }
+    .pv-badge.warn { background: #fde8e8; color: #a61b1b; }
+    .pv-badge.muted { background: #eef2f6; color: #334e68; }
+    .pv-card { background: #fff; border: 1px solid #d8e1ea; border-radius: 8px; padding: 18px 20px; margin: 14px 0; }
+    .pv-card h2 { font-size: 18px; margin: 0 0 4px; color: #123b5d; }
+    .pv-card .pv-sub { color: #66788a; font-size: 13px; margin-bottom: 14px; }
+    .pv-grid { display: table; width: 100%; border-collapse: collapse; }
+    .pv-grid .pv-row { display: table-row; }
+    .pv-grid .pv-cell { display: table-cell; padding: 7px 10px; border: 1px solid #e3e8ef; vertical-align: top; width: 25%; }
+    .pv-label { color: #66788a; font-size: 11px; letter-spacing: .3px; text-transform: uppercase; display: block; margin-bottom: 3px; }
+    .pv-value { color: #1f2933; font-weight: 600; word-break: break-word; }
+    .pv-amount { color: #123b5d; font-size: 16px; font-weight: 700; }
+    .pv-items { width: 100%; border-collapse: collapse; margin-top: 8px; }
+    .pv-items th { background: #f0f4f8; color: #1f2933; font-size: 11px; text-transform: uppercase; padding: 7px 8px; border: 1px solid #d8e1ea; text-align: left; }
+    .pv-items td { padding: 7px 8px; border: 1px solid #d8e1ea; font-size: 13px; vertical-align: top; }
+    .pv-items td.right { text-align: right; }
+    .pv-notice { background: #fff8e1; border-left: 4px solid #c97f00; padding: 10px 14px; color: #5b3a00; margin: 14px 0; font-size: 13px; }
+    .pv-notice strong { color: #3d2700; }
+    .pv-error { background: #fde8e8; border-left: 4px solid #a61b1b; padding: 14px 16px; color: #6b1010; font-size: 14px; }
+    .pv-token { font-family: "Courier New", monospace; font-size: 12px; word-break: break-all; }
+</style>
+
+<div class="pv-wrap">
+    <div style="display: flex; align-items: center; justify-content: space-between; gap: 12px; flex-wrap: wrap;">
+        <h1 style="margin: 0; font-size: 22px; color: #123b5d;">{{ _("Payment Indent Verification") }}</h1>
+        {% if error %}
+            <span class="pv-badge warn">{{ _("Unverified") }}</span>
+        {% elif is_manager_approved %}
+            <span class="pv-badge ok">{{ _("Verified · Manager Approved") }}</span>
+        {% else %}
+            <span class="pv-badge muted">{{ payment_indent.workflow_state or _("Unknown state") }}</span>
+        {% endif %}
+    </div>
+
+    {% if error %}
+        <div class="pv-card">
+            <div class="pv-error"><strong>{{ _("Could not verify this document.") }}</strong><br>{{ error }}</div>
+        </div>
+    {% else %}
+        <div class="pv-notice">
+            <strong>{{ _("Authoritative record.") }}</strong>
+            {{ _("If the printed document differs in any detail from what is shown below, do not act on it and report it.") }}
+        </div>
+
+        <div class="pv-card">
+            <h2>{{ payment_indent.name }}</h2>
+            <div class="pv-sub">{{ _("Manager-level approval record · RGI ERP") }}</div>
+
+            <div class="pv-grid">
+                <div class="pv-row">
+                    <div class="pv-cell"><span class="pv-label">{{ _("Workflow State") }}</span><span class="pv-value">{{ payment_indent.workflow_state }}</span></div>
+                    <div class="pv-cell"><span class="pv-label">{{ _("Posting Date") }}</span><span class="pv-value">{{ frappe.format(payment_indent.posting_date, {"fieldtype": "Date"}) }}</span></div>
+                    <div class="pv-cell"><span class="pv-label">{{ _("Requested By") }}</span><span class="pv-value">{{ frappe.db.get_value("User", payment_indent.requested_by, "full_name") or payment_indent.requested_by }}</span></div>
+                    <div class="pv-cell"><span class="pv-label">{{ _("Priority") }}</span><span class="pv-value">{{ payment_indent.priority or "" }}</span></div>
+                </div>
+                <div class="pv-row">
+                    <div class="pv-cell"><span class="pv-label">{{ _("Total Requested") }}</span><span class="pv-value pv-amount">{{ frappe.format(payment_indent.total_requested_amount, {"fieldtype": "Currency"}) }}</span></div>
+                    <div class="pv-cell"><span class="pv-label">{{ _("Total Approved") }}</span><span class="pv-value pv-amount">{{ frappe.format(payment_indent.total_approved_amount, {"fieldtype": "Currency"}) }}</span></div>
+                    <div class="pv-cell"><span class="pv-label">{{ _("Approved By") }}</span><span class="pv-value">{{ approver_label }}</span></div>
+                    <div class="pv-cell"><span class="pv-label">{{ _("Approved On") }}</span><span class="pv-value">{{ frappe.format(payment_indent.manager_approved_on, {"fieldtype": "Datetime"}) if payment_indent.manager_approved_on else "" }}</span></div>
+                </div>
+            </div>
+        </div>
+
+        <div class="pv-card">
+            <h2 style="font-size: 15px;">{{ _("Payment Lines") }}</h2>
+            <table class="pv-items">
+                <thead>
+                    <tr>
+                        <th style="width: 5%;">#</th>
+                        <th style="width: 28%;">{{ _("Party") }}</th>
+                        <th style="width: 22%;">{{ _("Company") }}</th>
+                        <th style="width: 15%;">{{ _("Reference") }}</th>
+                        <th style="width: 15%;" class="right">{{ _("Requested") }}</th>
+                        <th style="width: 15%;" class="right">{{ _("Approved") }}</th>
+                    </tr>
+                </thead>
+                <tbody>
+                {% for row in payment_indent.items %}
+                    {% set reference = row.reference_name or row.purchase_invoice or row.purchase_order or row.work_order_reference or _("No Reference") %}
+                    <tr>
+                        <td>{{ loop.index }}</td>
+                        <td><strong>{{ row.party_search or row.party_name or row.party or "" }}</strong></td>
+                        <td>{{ row.company }}</td>
+                        <td>{{ reference }}</td>
+                        <td class="right">{{ frappe.format(row.requested_amount, {"fieldtype": "Currency"}) }}</td>
+                        <td class="right"><strong>{{ frappe.format(row.approved_amount, {"fieldtype": "Currency"}) }}</strong></td>
+                    </tr>
+                {% endfor %}
+                </tbody>
+            </table>
+        </div>
+
+        <div class="pv-card">
+            <div class="pv-grid">
+                <div class="pv-row">
+                    <div class="pv-cell" style="width: 30%;"><span class="pv-label">{{ _("Verification Token") }}</span><span class="pv-value pv-token">{{ payment_indent.verification_token }}</span></div>
+                    <div class="pv-cell" style="width: 35%;"><span class="pv-label">{{ _("Document") }}</span><span class="pv-value">{{ payment_indent.name }}</span></div>
+                    <div class="pv-cell" style="width: 35%;"><span class="pv-label">{{ _("View Full Record") }}</span><a class="pv-value" href="/app/payment-indent/{{ payment_indent.name }}">/app/payment-indent/{{ payment_indent.name }}</a></div>
+                </div>
+            </div>
+        </div>
+    {% endif %}
+</div>
+{% endblock %}

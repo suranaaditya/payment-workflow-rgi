@@ -14,6 +14,11 @@ PAYMENT_APPROVER_ROLE = "Payment Approver"
 PAYMENT_INDENT_ROLES = {PAYMENT_APPROVER_ROLE, "Payment Indent Admin", "System Manager"}
 APPROVAL_STATES = {"Pending Manager Approval", "Manager Approved"}
 
+# Approvers whose name is replaced by a role title on the approval PDF and the verify page.
+# The DB record always keeps the real user (manager_approved_by) for audit.
+EXECUTIVE_DIRECTOR_USER = "shraddha.surana@raisoni.net"
+EXECUTIVE_DIRECTOR_TITLE = "Executive Director"
+
 
 class PaymentIndent(Document):
     def validate(self):
@@ -289,6 +294,8 @@ class PaymentIndent(Document):
     def set_manager_approval_details(self):
         self.manager_approved_by = frappe.session.user
         self.manager_approved_on = now_datetime()
+        if not self.verification_token:
+            self.verification_token = frappe.generate_hash(length=20)
 
     def generate_manager_approval_pdf(self):
         file_url = generate_pdf(self.name, ignore_permissions=True)
@@ -298,6 +305,80 @@ class PaymentIndent(Document):
 
 def get_settings():
     return frappe.get_single("Payment Indent Settings")
+
+
+def approver_display_label(user):
+    """Jinja-callable. Returns "Executive Director" for the configured ED user,
+    otherwise the user's full_name (or the user id as last resort)."""
+    if not user:
+        return ""
+    if user == EXECUTIVE_DIRECTOR_USER:
+        return EXECUTIVE_DIRECTOR_TITLE
+    return frappe.db.get_value("User", user, "full_name") or user
+
+
+def get_verification_base_url():
+    settings = get_settings()
+    base = (getattr(settings, "verification_base_url", None) or "").strip()
+    return base or frappe.utils.get_url()
+
+
+def get_verification_url(name, token):
+    from urllib.parse import quote
+
+    base = get_verification_base_url().rstrip("/")
+    return f"{base}/payment-indent-verify?id={quote(name)}&token={quote(token)}"
+
+
+def get_verification_qr(name):
+    """Jinja-callable. Returns a base64 data URI for the verification QR image,
+    or empty string if the doc has no token / qrcode lib is unavailable."""
+    token = frappe.db.get_value("Payment Indent", name, "verification_token")
+    if not token:
+        return ""
+    url = get_verification_url(name, token)
+    try:
+        import base64
+        import io
+
+        import qrcode
+
+        buffer = io.BytesIO()
+        qrcode.make(url).save(buffer, format="PNG")
+        encoded = base64.b64encode(buffer.getvalue()).decode("ascii")
+        return f"data:image/png;base64,{encoded}"
+    except Exception:
+        frappe.log_error(title="payment_indent QR render failed")
+        return ""
+
+
+def rasterize_pdf(pdf_bytes, dpi=200):
+    """Rasterize a PDF (bytes) into an image-only PDF using PyMuPDF.
+    Returns rasterized bytes. Raises ImportError if pymupdf isn't installed."""
+    import io
+
+    import fitz  # PyMuPDF
+
+    zoom = dpi / 72.0
+    matrix = fitz.Matrix(zoom, zoom)
+
+    src = fitz.open(stream=pdf_bytes, filetype="pdf")
+    out = fitz.open()
+    try:
+        for page in src:
+            pix = page.get_pixmap(matrix=matrix, alpha=False)
+            page_pdf = fitz.open()
+            new_page = page_pdf.new_page(width=page.rect.width, height=page.rect.height)
+            new_page.insert_image(new_page.rect, stream=pix.tobytes("png"))
+            out.insert_pdf(page_pdf)
+            page_pdf.close()
+
+        buffer = io.BytesIO()
+        out.save(buffer, deflate=True, garbage=3)
+        return buffer.getvalue()
+    finally:
+        src.close()
+        out.close()
 
 
 def has_payment_indent_role():
@@ -791,6 +872,19 @@ def generate_pdf(payment_indent_name, ignore_permissions=False):
         as_pdf=True,
         pdf_options={"orientation": "Landscape", "page-size": "A4"},
     )
+
+    settings = get_settings()
+    if cint(getattr(settings, "rasterize_approval_pdf", 0)):
+        try:
+            pdf_content = rasterize_pdf(pdf_content, dpi=200)
+        except ImportError:
+            frappe.log_error(
+                title="payment_indent rasterize skipped",
+                message="PyMuPDF (pymupdf) not installed. Install it or turn off rasterize_approval_pdf.",
+            )
+        except Exception:
+            frappe.log_error(title="payment_indent rasterize failed")
+
     file_doc = frappe.get_doc(
         {
             "doctype": "File",

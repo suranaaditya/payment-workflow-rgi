@@ -14,6 +14,12 @@
   "approval_otp_section",
   "require_approval_otp",
   "otp_issuer_name",
+  "pdf_verification_section",
+  "enable_pdf_verification_qr",
+  "show_system_generated_watermark",
+  "pdf_watermark_text",
+  "rasterize_approval_pdf",
+  "verification_base_url",
   "work_order_integration_section",
   "work_order_doctype",
   "work_order_party_field",
@@ -80,6 +86,44 @@
    "fieldname": "otp_issuer_name",
    "fieldtype": "Data",
    "label": "OTP Issuer Name"
+  },
+  {
+   "fieldname": "pdf_verification_section",
+   "fieldtype": "Section Break",
+   "label": "PDF Verification"
+  },
+  {
+   "default": "1",
+   "description": "Embed a QR code on the approval PDF that links to a login-gated verify page.",
+   "fieldname": "enable_pdf_verification_qr",
+   "fieldtype": "Check",
+   "label": "Enable PDF Verification QR"
+  },
+  {
+   "default": "1",
+   "description": "Print a diagonal repeating watermark on every page of the approval PDF.",
+   "fieldname": "show_system_generated_watermark",
+   "fieldtype": "Check",
+   "label": "Show System Generated Watermark"
+  },
+  {
+   "default": "SYSTEM GENERATED",
+   "fieldname": "pdf_watermark_text",
+   "fieldtype": "Data",
+   "label": "PDF Watermark Text"
+  },
+  {
+   "default": "1",
+   "description": "Rasterize (flatten to image) the final approval PDF so it cannot be edited by click-to-edit tools. Increases file size; QR still scans at 200 DPI.",
+   "fieldname": "rasterize_approval_pdf",
+   "fieldtype": "Check",
+   "label": "Rasterize Approval PDF"
+  },
+  {
+   "description": "Optional. Base URL used in QR (e.g. https://erp.jewonline.in). Leave blank to use the site URL.",
+   "fieldname": "verification_base_url",
+   "fieldtype": "Data",
+   "label": "Verification Base URL"
   },
   {
    "fieldname": "work_order_integration_section",

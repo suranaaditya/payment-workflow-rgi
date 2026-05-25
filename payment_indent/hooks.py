@@ -7,6 +7,17 @@ app_license = "mit"
 
 after_install = "payment_indent.install.after_install"
 
+jinja = {
+    "methods": [
+        "payment_indent.payment_indent.doctype.payment_indent.payment_indent.approver_display_label",
+        "payment_indent.payment_indent.doctype.payment_indent.payment_indent.get_verification_qr",
+    ],
+}
+
+website_route_rules = [
+    {"from_route": "/payment-indent-verify", "to_route": "payment_indent_verify"},
+]
+
 doc_events = {
     "File": {
         "on_trash": "payment_indent.payment_indent.doctype.payment_indent.payment_indent.prevent_payment_indent_pdf_delete",
