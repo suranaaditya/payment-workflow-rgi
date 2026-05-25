@@ -59,6 +59,7 @@ class PaymentIndent(Document):
         self.refresh_party_balances()
         self.calculate_totals()
         if self.workflow_state == "Manager Approved":
+            self._verify_approval_otp()
             self.validate_manager_approval()
             self.set_row_statuses()
             self.set_manager_approval_details()
