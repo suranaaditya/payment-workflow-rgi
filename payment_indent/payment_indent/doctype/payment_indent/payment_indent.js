@@ -503,6 +503,36 @@ function payment_line_reference_doctype(row) {
     return "";
 }
 
+function payment_line_references_html(row, all_refs) {
+    // Build a stacked list of every reference linked to this row from the
+    // parent doc's references child table. Falls back to the legacy single
+    // reference fields when nothing matches.
+    const refs = (all_refs || []).filter(
+        (r) =>
+            r.payment_indent_item === row.name ||
+            (r.payment_indent_item_idx && r.payment_indent_item_idx === row.idx)
+    );
+    if (refs.length) {
+        return refs
+            .map((r) => {
+                const ref_doctype = r.reference_doctype || payment_line_reference_doctype(row);
+                if (!ref_doctype) {
+                    return `<div class="text-muted small">${html_escape(r.reference_name)}</div>`;
+                }
+                return `
+                    <div>
+                        <a href="/app/${encodeURIComponent(frappe.router.slug(ref_doctype))}/${encodeURIComponent(r.reference_name)}"
+                            class="payment-reference-link"
+                            target="_blank"
+                            rel="noopener noreferrer">${html_escape(r.reference_name)}</a>
+                    </div>
+                `;
+            })
+            .join("");
+    }
+    return payment_line_reference_html(row);
+}
+
 function payment_line_reference_html(row) {
     const reference = payment_line_reference(row);
     if (!reference) {
@@ -582,7 +612,7 @@ function open_approval_workbench(frm) {
                         </td>
                         <td>
                             <div>${html_escape(row.reference_type)}</div>
-                            <div class="small">${payment_line_reference_html(row)}</div>
+                            <div class="small">${payment_line_references_html(row, frm.doc.references)}</div>
                             <div class="text-muted small">${html_escape(row.payment_terms === "Others" ? row.payment_terms_other : row.payment_terms)}</div>
                         </td>
                         <td class="text-right">
@@ -1099,8 +1129,20 @@ function open_payment_line_dialog(frm, row_name) {
                 }
                 sync_aggregates_to_dialog();
                 render_references_list();
-                // Clear the picker for the next entry
+                // Clear the picker for the next entry. The Dynamic Link
+                // awesomplete caches its dropdown list — blur + focus so the
+                // next click re-queries with the (now locked-supplier) filter
+                // and the just-added invoice drops out of the suggestions.
                 set_dialog_values(dialog, { reference_name: "" });
+                const $picker = dialog.fields_dict.reference_name && dialog.fields_dict.reference_name.$input;
+                if ($picker && $picker.length) {
+                    $picker.val("");
+                    if ($picker[0].awesomplete) {
+                        $picker[0].awesomplete.close();
+                    }
+                    $picker.blur();
+                    setTimeout(() => $picker.focus(), 50);
+                }
             },
         });
     };
