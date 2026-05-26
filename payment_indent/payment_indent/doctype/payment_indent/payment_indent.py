@@ -130,12 +130,29 @@ class PaymentIndent(Document):
         settings = get_settings()
         privileged = has_payment_indent_role()
 
+        # References live as a sibling child table on the parent Payment Indent;
+        # each entry carries a `payment_indent_item` field pointing to its row.
+        if not getattr(self, "references", None):
+            self.references = []
+
+        refs_by_item = {}
+        for ref in self.references:
+            ref_data = ref if isinstance(ref, dict) else ref.as_dict()
+            item_key = ref_data.get("payment_indent_item")
+            if not item_key:
+                continue
+            refs_by_item.setdefault(item_key, []).append(ref)
+
         for row in self.items:
             self.normalize_reference_fields(row)
             if row.reference_type == "No Reference":
+                # Make sure no stray references remain for this row
+                refs_by_item.pop(row.name, None)
                 continue
-            self._ensure_references_list(row)
-            self._validate_and_aggregate_references(row, settings, privileged)
+            row_refs = refs_by_item.get(row.name) or []
+            self._validate_and_aggregate_references(row, row_refs, settings, privileged)
+            # Sync any field updates back into self.references via the same objects
+            # (we mutated them in place during aggregation).
 
     def normalize_reference_fields(self, row):
         if row.reference_type == "Purchase Invoice":
@@ -171,36 +188,41 @@ class PaymentIndent(Document):
             row.purchase_receipt = None
             row.work_order_reference = None
 
-    def _ensure_references_list(self, row):
-        """If references list is empty but a single reference_name exists (legacy rows / quick entry), seed the child table."""
-        # Defensive: when the row arrives from a JSON payload that omits the
-        # `references` key entirely (older client builds, workflow API calls),
-        # Frappe leaves the attribute unset rather than initialising it to [].
-        if not getattr(row, "references", None):
-            row.references = []
-        if row.references:
-            return
-        if row.reference_name and row.reference_doctype:
-            row.append(
-                "references",
-                {
-                    "reference_doctype": row.reference_doctype,
-                    "reference_name": row.reference_name,
-                },
-            )
+    def _seed_legacy_reference(self, row):
+        """When a row has a legacy single reference_name but no entry in
+        self.references, materialise one entry so the aggregator + display
+        keep working. Uses self.append on the parent (allowed, since
+        `references` is a direct child of Payment Indent)."""
+        if not row.reference_name or not row.reference_doctype:
+            return None
+        existing = [
+            ref for ref in self.references
+            if (ref.get("payment_indent_item") if isinstance(ref, dict) else ref.payment_indent_item) == row.name
+        ]
+        if existing:
+            return None
+        new_entry = self.append(
+            "references",
+            {
+                "payment_indent_item": row.name,
+                "reference_doctype": row.reference_doctype,
+                "reference_name": row.reference_name,
+            },
+        )
+        return new_entry
 
-    def _validate_and_aggregate_references(self, row, settings, privileged):
-        if not row.references:
+    def _validate_and_aggregate_references(self, row, row_refs, settings, privileged):
+        if not row_refs:
+            seeded = self._seed_legacy_reference(row)
+            if seeded is not None:
+                row_refs = [seeded]
+        if not row_refs:
             frappe.throw(_("At least one reference is required in row {0}.").format(row.idx))
 
-        # Frappe occasionally leaves grandchildren as raw dicts when the parent
-        # doc is constructed from JSON (especially on first save of a new doc).
-        # Wrap any plain dicts in frappe._dict so attribute access and mutation
-        # both work uniformly; the save path handles either form.
-        row.references = [
-            ref if not isinstance(ref, dict) else frappe._dict(ref)
-            for ref in row.references
-        ]
+        # Normalise dict entries so attribute reads/writes work uniformly.
+        for i, ref in enumerate(row_refs):
+            if isinstance(ref, dict):
+                row_refs[i] = frappe._dict(ref)
 
         seen = set()
         agg_reference_amount = 0
@@ -208,7 +230,7 @@ class PaymentIndent(Document):
         latest_date = None
         first_details = None
 
-        for ref in row.references:
+        for ref in row_refs:
             details = _fetch_reference_details(
                 row.reference_type,
                 ref.reference_name,
@@ -259,7 +281,7 @@ class PaymentIndent(Document):
             row.party_search = get_party_display(row.party_type, row.party, row.party_name)
 
         # Primary reference (kept on the row for back-compat: grid, old links, etc.)
-        first = row.references[0]
+        first = row_refs[0]
         row.reference_name = first.reference_name
         row.reference_date = latest_date
         row.reference_amount = agg_reference_amount

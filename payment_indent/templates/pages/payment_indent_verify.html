@@ -84,8 +84,9 @@
                     </tr>
                 </thead>
                 <tbody>
+                {% set _all_refs = payment_indent.references or [] %}
                 {% for row in payment_indent.items %}
-                    {% set ref_entries = row.references or [] %}
+                    {% set ref_entries = _all_refs|selectattr("payment_indent_item", "equalto", row.name)|list %}
                     <tr>
                         <td>{{ loop.index }}</td>
                         <td><strong>{{ row.party_search or row.party_name or row.party or "" }}</strong></td>

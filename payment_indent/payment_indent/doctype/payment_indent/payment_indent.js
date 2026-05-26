@@ -1106,7 +1106,13 @@ function open_payment_line_dialog(frm, row_name) {
     };
 
     const seed_references_from_row = (row) => {
-        selectedReferences = (row && row.references) ? row.references.map((r) => ({
+        if (!row) {
+            selectedReferences = [];
+            return;
+        }
+        const all_refs = frm.doc.references || [];
+        const row_refs = all_refs.filter((r) => r.payment_indent_item === row.name);
+        selectedReferences = row_refs.map((r) => ({
             reference_doctype: r.reference_doctype,
             reference_name: r.reference_name,
             reference_date: r.reference_date,
@@ -1115,9 +1121,9 @@ function open_payment_line_dialog(frm, row_name) {
             party_type: row.party_type,
             party: row.party,
             party_name: row.party_name,
-        })) : [];
+        }));
         // Back-compat: if no `references` rows but legacy reference_name set, seed one entry.
-        if (!selectedReferences.length && row && row.reference_name && reference_type_supports_multi(row.reference_type)) {
+        if (!selectedReferences.length && row.reference_name && reference_type_supports_multi(row.reference_type)) {
             selectedReferences.push({
                 reference_doctype: row.reference_doctype,
                 reference_name: row.reference_name,
@@ -1440,11 +1446,16 @@ function open_payment_line_dialog(frm, row_name) {
             set_row_value("work_order_reference", "");
         }
 
-        // Replace child references on the row
-        row.references = [];
+        // References live as a sibling child table on the parent doc, keyed
+        // back to this row via payment_indent_item. Drop any existing entries
+        // for this row and re-add from selectedReferences.
+        frm.doc.references = (frm.doc.references || []).filter(
+            (r) => r.payment_indent_item !== row.name
+        );
         if (reference_type_supports_multi(values.reference_type)) {
             selectedReferences.forEach((ref) => {
-                const child = frappe.model.add_child(row, "Payment Indent Item Reference", "references");
+                const child = frappe.model.add_child(frm.doc, "Payment Indent Item Reference", "references");
+                child.payment_indent_item = row.name;
                 child.reference_doctype = ref.reference_doctype;
                 child.reference_name = ref.reference_name;
                 child.reference_date = ref.reference_date;
@@ -1453,6 +1464,7 @@ function open_payment_line_dialog(frm, row_name) {
             });
         }
         frm.refresh_field("items");
+        frm.refresh_field("references");
     };
 
     const clear_dialog_for_next = () => {

@@ -6,6 +6,7 @@
  "editable_grid": 1,
  "engine": "InnoDB",
  "field_order": [
+  "payment_indent_item",
   "reference_doctype",
   "reference_name",
   "reference_date",
@@ -13,6 +14,14 @@
   "outstanding_amount"
  ],
  "fields": [
+  {
+   "description": "Name of the Payment Indent Item row this reference belongs to. Filled by the parent doc's validation.",
+   "fieldname": "payment_indent_item",
+   "fieldtype": "Data",
+   "hidden": 1,
+   "label": "Payment Indent Item",
+   "read_only": 1
+  },
   {
    "fieldname": "reference_doctype",
    "fieldtype": "Link",

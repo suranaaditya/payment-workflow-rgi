@@ -14,6 +14,7 @@
   "priority",
   "payment_lines_section",
   "items",
+  "references",
   "totals_section",
   "total_requested_amount",
   "totals_column",
@@ -72,6 +73,14 @@
    "label": "Payment Indent Items",
    "options": "Payment Indent Item",
    "reqd": 1
+  },
+  {
+   "description": "Reference documents linked to payment lines. Each row's payment_indent_item field points back to the relevant Payment Indent Item.",
+   "fieldname": "references",
+   "fieldtype": "Table",
+   "hidden": 1,
+   "label": "References",
+   "options": "Payment Indent Item Reference"
   },
   {
    "fieldname": "totals_section",

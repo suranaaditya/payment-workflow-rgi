@@ -11,7 +11,6 @@
   "company",
   "reference_type",
   "reference_name",
-  "references",
   "payment_terms",
   "payment_terms_other",
   "reference_doctype",
@@ -136,13 +135,6 @@
    "hidden": 1,
    "label": "Purchase Receipt",
    "options": "Purchase Receipt"
-  },
-  {
-   "description": "Multiple references for this payment line. Populated by the Add/Edit Payment Line dialog. Single-reference rows store one entry here; the primary reference also stays on `Reference` for back-compat and grid display.",
-   "fieldname": "references",
-   "fieldtype": "Table",
-   "label": "References",
-   "options": "Payment Indent Item Reference"
   },
   {
    "fieldname": "work_order_doctype",
