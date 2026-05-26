@@ -1749,8 +1749,6 @@ frappe.ui.form.on("Payment Indent", {
                 }
                 open_payment_line_dialog(frm, selected[0].name);
             });
-            frm.add_custom_button(__("Refresh Party Balances"), () => refresh_all_row_balances(frm));
-            frm.add_custom_button(__("Select Party"), () => open_party_picker(frm));
         }
 
         if (frm.doc.workflow_state === "Manager Approved") {
