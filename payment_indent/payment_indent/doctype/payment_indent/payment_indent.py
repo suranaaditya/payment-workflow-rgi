@@ -173,6 +173,11 @@ class PaymentIndent(Document):
 
     def _ensure_references_list(self, row):
         """If references list is empty but a single reference_name exists (legacy rows / quick entry), seed the child table."""
+        # Defensive: when the row arrives from a JSON payload that omits the
+        # `references` key entirely (older client builds, workflow API calls),
+        # Frappe leaves the attribute unset rather than initialising it to [].
+        if not getattr(row, "references", None):
+            row.references = []
         if row.references:
             return
         if row.reference_name and row.reference_doctype:
