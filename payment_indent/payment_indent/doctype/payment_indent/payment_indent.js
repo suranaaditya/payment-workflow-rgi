@@ -1597,9 +1597,22 @@ function open_payment_line_dialog(frm, row_name) {
 
     const on_reference_type_change = () => {
         const reference_type = dialog.get_value("reference_type");
-        // Switching type invalidates any previously picked refs (they belong to a different doctype)
-        selectedReferences = [];
-        sync_aggregates_to_dialog();
+        // Frappe's dialog.set_value queues an async 'change' event which lands
+        // here AFTER the seed has populated selectedReferences from
+        // frm.doc.references. Only wipe the list when the user actually
+        // changes the type to one that does NOT match the current refs'
+        // doctype — that way the initial dialog open keeps the seeded refs.
+        const expectedDoctype = {
+            "Purchase Invoice": "Purchase Invoice",
+            "Purchase Order": "Purchase Order",
+            "Purchase Receipt": "Purchase Receipt",
+        }[reference_type];
+        const currentDoctype = selectedReferences[0] && selectedReferences[0].reference_doctype;
+        const type_mismatch = expectedDoctype && currentDoctype && currentDoctype !== expectedDoctype;
+        if (!selectedReferences.length || type_mismatch) {
+            selectedReferences = [];
+            sync_aggregates_to_dialog();
+        }
         clear_dialog_reference_snapshot();
         update_reference_field_visibility();
         get_reference_doctype_for_type(reference_type, (doctype) => {
