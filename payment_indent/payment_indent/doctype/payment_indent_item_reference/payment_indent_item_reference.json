@@ -7,6 +7,7 @@
  "engine": "InnoDB",
  "field_order": [
   "payment_indent_item",
+  "payment_indent_item_idx",
   "reference_doctype",
   "reference_name",
   "reference_date",
@@ -20,6 +21,14 @@
    "fieldtype": "Data",
    "hidden": 1,
    "label": "Payment Indent Item",
+   "read_only": 1
+  },
+  {
+   "description": "Position of the Payment Indent Item row (used to rebind references after Frappe renames new items on insert).",
+   "fieldname": "payment_indent_item_idx",
+   "fieldtype": "Int",
+   "hidden": 1,
+   "label": "Payment Indent Item Idx",
    "read_only": 1
   },
   {

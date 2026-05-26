@@ -1111,7 +1111,13 @@ function open_payment_line_dialog(frm, row_name) {
             return;
         }
         const all_refs = frm.doc.references || [];
-        const row_refs = all_refs.filter((r) => r.payment_indent_item === row.name);
+        // Match by name primarily (covers saved docs) and fall back to idx
+        // for newly-added items whose temp name was rewritten by the server.
+        const row_refs = all_refs.filter(
+            (r) =>
+                r.payment_indent_item === row.name ||
+                (r.payment_indent_item_idx && r.payment_indent_item_idx === row.idx)
+        );
         selectedReferences = row_refs.map((r) => ({
             reference_doctype: r.reference_doctype,
             reference_name: r.reference_name,
@@ -1447,15 +1453,19 @@ function open_payment_line_dialog(frm, row_name) {
         }
 
         // References live as a sibling child table on the parent doc, keyed
-        // back to this row via payment_indent_item. Drop any existing entries
-        // for this row and re-add from selectedReferences.
+        // back to this row via payment_indent_item (name) AND
+        // payment_indent_item_idx (position). New items get renamed by Frappe
+        // on insert; the server validation uses idx to repoint orphaned refs.
         frm.doc.references = (frm.doc.references || []).filter(
-            (r) => r.payment_indent_item !== row.name
+            (r) =>
+                r.payment_indent_item !== row.name &&
+                r.payment_indent_item_idx !== row.idx
         );
         if (reference_type_supports_multi(values.reference_type)) {
             selectedReferences.forEach((ref) => {
                 const child = frappe.model.add_child(frm.doc, "Payment Indent Item Reference", "references");
                 child.payment_indent_item = row.name;
+                child.payment_indent_item_idx = row.idx;
                 child.reference_doctype = ref.reference_doctype;
                 child.reference_name = ref.reference_name;
                 child.reference_date = ref.reference_date;

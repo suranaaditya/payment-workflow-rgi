@@ -135,6 +135,24 @@ class PaymentIndent(Document):
         if not getattr(self, "references", None):
             self.references = []
 
+        # Repair orphans: Frappe renames new item rows on insert, so any
+        # reference whose payment_indent_item points at a stale temp name
+        # needs to be rebound via payment_indent_item_idx (which is stable
+        # within a save cycle).
+        items_by_name = {it.name: it for it in self.items}
+        items_by_idx = {int(it.idx or 0): it for it in self.items}
+        for ref in self.references:
+            current = ref.get("payment_indent_item") if isinstance(ref, dict) else ref.payment_indent_item
+            if current and current in items_by_name:
+                continue
+            idx = ref.get("payment_indent_item_idx") if isinstance(ref, dict) else ref.payment_indent_item_idx
+            target = items_by_idx.get(int(idx or 0))
+            if target:
+                if isinstance(ref, dict):
+                    ref["payment_indent_item"] = target.name
+                else:
+                    ref.payment_indent_item = target.name
+
         refs_by_item = {}
         for ref in self.references:
             ref_data = ref if isinstance(ref, dict) else ref.as_dict()
@@ -205,6 +223,7 @@ class PaymentIndent(Document):
             "references",
             {
                 "payment_indent_item": row.name,
+                "payment_indent_item_idx": row.idx,
                 "reference_doctype": row.reference_doctype,
                 "reference_name": row.reference_name,
             },
