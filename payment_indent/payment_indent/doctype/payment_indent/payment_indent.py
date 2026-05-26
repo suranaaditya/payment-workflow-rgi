@@ -132,23 +132,29 @@ class PaymentIndent(Document):
 
         for row in self.items:
             self.normalize_reference_fields(row)
-            if row.reference_type == "Purchase Invoice":
-                self.validate_purchase_invoice(row, settings, privileged)
-            elif row.reference_type == "Purchase Order":
-                self.validate_purchase_order(row)
-            elif row.reference_type == "Work Order":
-                self.validate_work_order(row)
+            if row.reference_type == "No Reference":
+                continue
+            self._ensure_references_list(row)
+            self._validate_and_aggregate_references(row, settings, privileged)
 
     def normalize_reference_fields(self, row):
         if row.reference_type == "Purchase Invoice":
             row.reference_doctype = "Purchase Invoice"
             row.purchase_invoice = row.reference_name
             row.purchase_order = None
+            row.purchase_receipt = None
             row.work_order_reference = None
         elif row.reference_type == "Purchase Order":
             row.reference_doctype = "Purchase Order"
             row.purchase_order = row.reference_name
             row.purchase_invoice = None
+            row.purchase_receipt = None
+            row.work_order_reference = None
+        elif row.reference_type == "Purchase Receipt":
+            row.reference_doctype = "Purchase Receipt"
+            row.purchase_receipt = row.reference_name
+            row.purchase_invoice = None
+            row.purchase_order = None
             row.work_order_reference = None
         elif row.reference_type == "Work Order":
             row.reference_doctype = row.work_order_doctype or get_settings().work_order_doctype
@@ -156,75 +162,117 @@ class PaymentIndent(Document):
             row.work_order_reference = row.reference_name
             row.purchase_invoice = None
             row.purchase_order = None
+            row.purchase_receipt = None
         else:
             row.reference_doctype = None
             row.reference_name = None
             row.purchase_invoice = None
             row.purchase_order = None
+            row.purchase_receipt = None
             row.work_order_reference = None
 
-    def validate_purchase_invoice(self, row, settings, privileged):
-        if not row.reference_name:
-            frappe.throw(_("Purchase Invoice is mandatory in row {0}.").format(row.idx))
-        invoice = frappe.get_doc("Purchase Invoice", row.reference_name)
-        if invoice.docstatus != 1:
-            frappe.throw(_("Purchase Invoice {0} must be submitted.").format(invoice.name))
-        if invoice.is_return:
-            frappe.throw(_("Purchase Invoice {0} is a return invoice and cannot be used.").format(invoice.name))
-        if row.party and row.party_type == "Supplier" and invoice.supplier != row.party:
-            frappe.throw(_("Purchase Invoice {0} does not belong to selected supplier.").format(invoice.name))
-        row.party_type = "Supplier"
-        row.party = invoice.supplier
-        row.party_name = invoice.supplier_name
-        row.party_search = get_party_display("Supplier", invoice.supplier, invoice.supplier_name)
-        if row.company and invoice.company != row.company:
-            frappe.throw(_("Purchase Invoice {0} belongs to company {1}, not {2}.").format(invoice.name, invoice.company, row.company))
-        row.reference_date = invoice.posting_date
-        row.reference_amount = invoice.grand_total
-        row.outstanding_amount = invoice.outstanding_amount
-        if not row.description:
-            row.description = invoice.get("remarks") or invoice.get("bill_no")
-        if flt(row.requested_amount) > flt(invoice.outstanding_amount) and not (settings.allow_request_above_party_balance or privileged):
-            frappe.throw(_("Requested Amount in row {0} cannot exceed Purchase Invoice outstanding amount.").format(row.idx))
+    def _ensure_references_list(self, row):
+        """If references list is empty but a single reference_name exists (legacy rows / quick entry), seed the child table."""
+        if row.references:
+            return
+        if row.reference_name and row.reference_doctype:
+            row.append(
+                "references",
+                {
+                    "reference_doctype": row.reference_doctype,
+                    "reference_name": row.reference_name,
+                },
+            )
 
-    def validate_purchase_order(self, row):
-        if not row.reference_name:
-            frappe.throw(_("Purchase Order is mandatory in row {0}.").format(row.idx))
-        order = frappe.get_doc("Purchase Order", row.reference_name)
-        if order.docstatus != 1:
-            frappe.throw(_("Purchase Order {0} must be submitted.").format(order.name))
-        if order.status in {"Closed", "Cancelled"}:
-            frappe.throw(_("Purchase Order {0} is {1}.").format(order.name, order.status))
-        if row.party and row.party_type == "Supplier" and order.supplier != row.party:
-            frappe.throw(_("Purchase Order {0} does not belong to selected supplier.").format(order.name))
-        row.party_type = "Supplier"
-        row.party = order.supplier
-        row.party_name = order.supplier_name
-        row.party_search = get_party_display("Supplier", order.supplier, order.supplier_name)
-        if row.company and order.company != row.company:
-            frappe.throw(_("Purchase Order {0} belongs to company {1}, not {2}.").format(order.name, order.company, row.company))
-        row.reference_date = order.transaction_date
-        row.reference_amount = order.grand_total
-        row.outstanding_amount = max(flt(order.grand_total) - flt(order.get("advance_paid")), 0)
-        if not row.description:
-            row.description = order.get("status")
+    def _validate_and_aggregate_references(self, row, settings, privileged):
+        if not row.references:
+            frappe.throw(_("At least one reference is required in row {0}.").format(row.idx))
 
-    def validate_work_order(self, row):
-        if not row.reference_name:
-            frappe.throw(_("Work Order Reference is mandatory in row {0}.").format(row.idx))
-        details = get_work_order_details(row.reference_name)
-        if details.get("company") and row.company and details.company != row.company:
-            frappe.throw(_("Work Order {0} belongs to company {1}, not {2}.").format(row.reference_name, details.company, row.company))
-        row.work_order_doctype = details.work_order_doctype
-        if details.get("party"):
-            row.party_type = details.get("party_type") or row.party_type
-            row.party = details.get("party")
-            row.party_name = details.get("party_name") or details.get("party")
-            row.party_search = get_party_display(row.party_type, row.party, row.party_name) if row.party_type else row.party_name
-        row.reference_date = details.get("reference_date")
-        row.reference_amount = details.get("reference_amount")
-        row.outstanding_amount = details.get("outstanding_amount")
-        row.description = row.description or details.get("description")
+        seen = set()
+        agg_reference_amount = 0
+        agg_outstanding = 0
+        latest_date = None
+        first_details = None
+
+        for ref in row.references:
+            details = _fetch_reference_details(
+                row.reference_type,
+                ref.reference_name,
+                expected_company=row.company,
+                row_idx=row.idx,
+            )
+            key = (details["reference_doctype"], details["reference_name"])
+            if key in seen:
+                frappe.throw(
+                    _("Reference {0} is listed twice in row {1}.").format(
+                        details["reference_name"], row.idx
+                    )
+                )
+            seen.add(key)
+
+            if first_details is None:
+                first_details = details
+            else:
+                if (
+                    details.get("party")
+                    and first_details.get("party")
+                    and details["party"] != first_details["party"]
+                ):
+                    frappe.throw(
+                        _(
+                            "All references in row {0} must belong to the same party. "
+                            "Found {1} and {2}."
+                        ).format(row.idx, first_details["party"], details["party"])
+                    )
+
+            ref.reference_doctype = details["reference_doctype"]
+            ref.reference_date = details.get("reference_date")
+            ref.reference_amount = flt(details.get("reference_amount"))
+            ref.outstanding_amount = flt(details.get("outstanding_amount"))
+
+            agg_reference_amount += flt(details.get("reference_amount"))
+            agg_outstanding += flt(details.get("outstanding_amount"))
+            ref_date = details.get("reference_date")
+            if ref_date and (latest_date is None or ref_date > latest_date):
+                latest_date = ref_date
+
+        # Adopt the (now agreed) party from the first reference; for Work Order
+        # some doctypes may not return a party — fall back to whatever the row had.
+        if first_details and first_details.get("party"):
+            row.party_type = first_details.get("party_type") or row.party_type
+            row.party = first_details["party"]
+            row.party_name = first_details.get("party_name") or first_details["party"]
+            row.party_search = get_party_display(row.party_type, row.party, row.party_name)
+
+        # Primary reference (kept on the row for back-compat: grid, old links, etc.)
+        first = row.references[0]
+        row.reference_name = first.reference_name
+        row.reference_date = latest_date
+        row.reference_amount = agg_reference_amount
+        row.outstanding_amount = agg_outstanding
+
+        # Sync the per-type back-compat fields with the first ref
+        if row.reference_type == "Purchase Invoice":
+            row.purchase_invoice = first.reference_name
+        elif row.reference_type == "Purchase Order":
+            row.purchase_order = first.reference_name
+        elif row.reference_type == "Purchase Receipt":
+            row.purchase_receipt = first.reference_name
+        elif row.reference_type == "Work Order":
+            row.work_order_reference = first.reference_name
+
+        if not row.description and first_details and first_details.get("description"):
+            row.description = first_details["description"]
+
+        if (
+            flt(row.requested_amount) > agg_outstanding
+            and not (settings.allow_request_above_party_balance or privileged)
+        ):
+            frappe.throw(
+                _("Requested Amount in row {0} cannot exceed total outstanding {1}.").format(
+                    row.idx, agg_outstanding
+                )
+            )
 
     def validate_no_reference_requirements(self):
         settings = get_settings()
@@ -794,6 +842,31 @@ def get_reference_details(reference_type, reference_name, party_type=None, party
             "description": order.get("status"),
         }
 
+    if reference_type == "Purchase Receipt":
+        receipt = frappe.get_doc("Purchase Receipt", reference_name)
+        if receipt.docstatus != 1:
+            frappe.throw(_("Purchase Receipt {0} must be submitted.").format(reference_name))
+        if receipt.get("is_return"):
+            frappe.throw(_("Purchase Receipt {0} is a return receipt and cannot be used.").format(reference_name))
+        if party and receipt.supplier != party:
+            frappe.throw(_("Purchase Receipt {0} does not belong to selected party.").format(reference_name))
+        if company and receipt.company != company:
+            frappe.throw(_("Purchase Receipt {0} does not belong to selected company.").format(reference_name))
+        # ERPNext doesn't carry an outstanding_amount on receipts; treat the
+        # unbilled portion (grand_total - billed_amount) as still payable.
+        unbilled = max(flt(receipt.grand_total) - flt(receipt.get("billed_amount")), 0)
+        return {
+            "party_type": "Supplier",
+            "party": receipt.supplier,
+            "party_name": receipt.supplier_name,
+            "party_search": get_party_display("Supplier", receipt.supplier, receipt.supplier_name),
+            "company": receipt.company,
+            "reference_date": receipt.posting_date,
+            "reference_amount": receipt.grand_total,
+            "outstanding_amount": unbilled or flt(receipt.grand_total),
+            "description": receipt.get("remarks") or receipt.get("supplier_delivery_note"),
+        }
+
     if reference_type == "Work Order":
         return get_work_order_details(reference_name, party=party, company=company)
 
@@ -801,6 +874,32 @@ def get_reference_details(reference_type, reference_name, party_type=None, party
         return {"description": "No Reference"}
 
     frappe.throw(_("Unsupported Reference Type: {0}").format(reference_type))
+
+
+def _fetch_reference_details(reference_type, reference_name, expected_company=None, row_idx=None):
+    """Thin wrapper used by validate_reference_documents: calls get_reference_details
+    and appends the canonical reference_doctype / reference_name back into the dict
+    so the caller can persist them to the child entry without re-deriving."""
+    if not reference_name:
+        frappe.throw(_("Reference is mandatory in row {0}.").format(row_idx or ""))
+    details = get_reference_details(
+        reference_type=reference_type,
+        reference_name=reference_name,
+        company=expected_company,
+    ) or {}
+    if reference_type == "Purchase Invoice":
+        ref_doctype = "Purchase Invoice"
+    elif reference_type == "Purchase Order":
+        ref_doctype = "Purchase Order"
+    elif reference_type == "Purchase Receipt":
+        ref_doctype = "Purchase Receipt"
+    elif reference_type == "Work Order":
+        ref_doctype = get_settings().work_order_doctype
+    else:
+        ref_doctype = ""
+    details["reference_doctype"] = ref_doctype
+    details["reference_name"] = reference_name
+    return details
 
 
 def get_work_order_details(reference_name, party=None, company=None):

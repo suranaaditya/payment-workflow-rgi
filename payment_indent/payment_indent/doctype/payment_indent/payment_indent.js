@@ -11,6 +11,7 @@ const REFERENCE_TYPE_OPTIONS = [
     "",
     "Purchase Invoice",
     "Purchase Order",
+    "Purchase Receipt",
     "Work Order",
     "No Reference",
 ].join("\n");
@@ -828,6 +829,8 @@ function get_reference_doctype_for_type(reference_type, callback) {
         callback("Purchase Invoice");
     } else if (reference_type === "Purchase Order") {
         callback("Purchase Order");
+    } else if (reference_type === "Purchase Receipt") {
+        callback("Purchase Receipt");
     } else if (reference_type === "Work Order") {
         frappe.db.get_single_value("Payment Indent Settings", "work_order_doctype").then((doctype) => {
             if (!doctype) {
@@ -838,6 +841,10 @@ function get_reference_doctype_for_type(reference_type, callback) {
     } else {
         callback("");
     }
+}
+
+function reference_type_supports_multi(reference_type) {
+    return ["Purchase Invoice", "Purchase Order", "Purchase Receipt", "Work Order"].includes(reference_type);
 }
 
 function set_dialog_values(dialog, values) {
@@ -902,11 +909,13 @@ function open_payment_line_dialog(frm, row_name) {
             { fieldname: "reference_doctype", fieldtype: "Link", options: "DocType", hidden: 1 },
             {
                 fieldname: "reference_name",
-                label: __("Reference"),
+                label: __("Add Reference"),
                 fieldtype: "Dynamic Link",
                 options: "reference_doctype",
+                description: __("Pick a reference and it will be added below. You can add multiple."),
                 hidden: 1,
             },
+            { fieldname: "references_html", fieldtype: "HTML" },
             {
                 fieldname: "terms_section",
                 fieldtype: "Section Break",
@@ -963,6 +972,164 @@ function open_payment_line_dialog(frm, row_name) {
             save_payment_line(false);
         },
     });
+
+    // --- multi-reference state for this dialog instance ---
+    let selectedReferences = [];
+
+    const format_currency_safe = (value) => format_currency(flt(value), frm.doc.currency || undefined);
+
+    const render_references_list = () => {
+        const $wrapper = dialog.fields_dict.references_html.$wrapper;
+        if (!reference_type_supports_multi(dialog.get_value("reference_type"))) {
+            $wrapper.empty();
+            return;
+        }
+        if (!selectedReferences.length) {
+            $wrapper.html(`<div class="text-muted small" style="margin: 4px 0 6px;">${__("No references added yet. Pick one above to start.")}</div>`);
+            return;
+        }
+        const rows_html = selectedReferences
+            .map((ref, idx) => `
+                <tr data-ref-idx="${idx}">
+                    <td class="small text-muted">${idx + 1}</td>
+                    <td><strong>${frappe.utils.escape_html(ref.reference_name)}</strong></td>
+                    <td class="small text-muted">${frappe.utils.escape_html(ref.reference_date ? frappe.format(ref.reference_date, {fieldtype: "Date"}) : "")}</td>
+                    <td class="text-right">${format_currency_safe(ref.reference_amount)}</td>
+                    <td class="text-right">${format_currency_safe(ref.outstanding_amount)}</td>
+                    <td class="text-right"><button type="button" class="btn btn-xs btn-default remove-ref" title="${__("Remove")}">&times;</button></td>
+                </tr>
+            `).join("");
+        const sum_ref = selectedReferences.reduce((s, r) => s + flt(r.reference_amount), 0);
+        const sum_out = selectedReferences.reduce((s, r) => s + flt(r.outstanding_amount), 0);
+        $wrapper.html(`
+            <style>
+                .pi-refs-table { width: 100%; border-collapse: collapse; margin: 6px 0 8px; font-size: 12px; }
+                .pi-refs-table th, .pi-refs-table td { border: 1px solid var(--border-color); padding: 4px 6px; }
+                .pi-refs-table th { background: var(--control-bg); font-weight: 600; }
+                .pi-refs-table .text-right { text-align: right; }
+                .pi-refs-totals { color: var(--text-muted); font-size: 11px; margin-bottom: 4px; }
+                .pi-refs-totals strong { color: var(--text-color); }
+            </style>
+            <table class="pi-refs-table">
+                <thead>
+                    <tr><th style="width:30px;">#</th><th>${__("Reference")}</th><th style="width:90px;">${__("Date")}</th><th style="width:110px;" class="text-right">${__("Amount")}</th><th style="width:110px;" class="text-right">${__("Outstanding")}</th><th style="width:36px;"></th></tr>
+                </thead>
+                <tbody>${rows_html}</tbody>
+            </table>
+            <div class="pi-refs-totals">
+                ${__("Total")}: <strong>${format_currency_safe(sum_ref)}</strong> &middot;
+                ${__("Outstanding")}: <strong>${format_currency_safe(sum_out)}</strong>
+            </div>
+        `);
+        $wrapper.find(".remove-ref").on("click", function () {
+            const idx = parseInt($(this).closest("tr").attr("data-ref-idx"), 10);
+            selectedReferences.splice(idx, 1);
+            sync_aggregates_to_dialog();
+            render_references_list();
+        });
+    };
+
+    const sync_aggregates_to_dialog = () => {
+        const sum_amount = selectedReferences.reduce((s, r) => s + flt(r.reference_amount), 0);
+        const sum_outstanding = selectedReferences.reduce((s, r) => s + flt(r.outstanding_amount), 0);
+        const latest_date = selectedReferences
+            .map((r) => r.reference_date)
+            .filter(Boolean)
+            .sort()
+            .pop() || "";
+        set_dialog_values(dialog, {
+            reference_date: latest_date,
+            reference_amount: sum_amount,
+            outstanding_amount: sum_outstanding,
+        });
+        if (selectedReferences.length) {
+            const first = selectedReferences[0];
+            // sync the picker's stored reference_name to the first ref so other
+            // legacy code paths (read on row) keep working.
+            if (dialog.fields_dict.reference_name) {
+                dialog.doc = dialog.doc || {};
+                dialog.doc.reference_name = first.reference_name;
+            }
+        }
+    };
+
+    const add_selected_reference_to_list = (ref_name) => {
+        const values = get_payment_line_dialog_values(true);
+        const reference_type = values.reference_type;
+        if (!reference_type_supports_multi(reference_type)) return;
+        if (!ref_name) return;
+        if (selectedReferences.some((r) => r.reference_name === ref_name)) {
+            frappe.show_alert({ message: __("{0} is already in the list.", [ref_name]), indicator: "orange" });
+            return;
+        }
+        frappe.call({
+            method: `${PAYMENT_INDENT_METHOD}.get_reference_details`,
+            args: {
+                reference_type,
+                reference_name: ref_name,
+                party_type: selectedReferences[0] ? values.party_type : null,
+                party: selectedReferences[0] ? selectedReferences[0].party : null,
+                company: values.company,
+            },
+            callback(r) {
+                const details = r.message || {};
+                if (selectedReferences.length && details.party && selectedReferences[0].party && details.party !== selectedReferences[0].party) {
+                    frappe.msgprint(__("All references in a row must belong to the same party. {0} belongs to {1}.", [ref_name, details.party]));
+                    return;
+                }
+                selectedReferences.push({
+                    reference_doctype: values.reference_doctype,
+                    reference_name: ref_name,
+                    reference_date: details.reference_date || null,
+                    reference_amount: flt(details.reference_amount),
+                    outstanding_amount: flt(details.outstanding_amount),
+                    party_type: details.party_type,
+                    party: details.party,
+                    party_name: details.party_name,
+                });
+                if (selectedReferences.length === 1 && details.party) {
+                    // First ref locks the party
+                    set_dialog_values(dialog, {
+                        party_type: details.party_type,
+                        party: details.party,
+                        party_name: details.party_name,
+                        party_search: details.party_search || details.party_name,
+                    });
+                    refresh_dialog_balance();
+                }
+                sync_aggregates_to_dialog();
+                render_references_list();
+                // Clear the picker for the next entry
+                set_dialog_values(dialog, { reference_name: "" });
+            },
+        });
+    };
+
+    const seed_references_from_row = (row) => {
+        selectedReferences = (row && row.references) ? row.references.map((r) => ({
+            reference_doctype: r.reference_doctype,
+            reference_name: r.reference_name,
+            reference_date: r.reference_date,
+            reference_amount: flt(r.reference_amount),
+            outstanding_amount: flt(r.outstanding_amount),
+            party_type: row.party_type,
+            party: row.party,
+            party_name: row.party_name,
+        })) : [];
+        // Back-compat: if no `references` rows but legacy reference_name set, seed one entry.
+        if (!selectedReferences.length && row && row.reference_name && reference_type_supports_multi(row.reference_type)) {
+            selectedReferences.push({
+                reference_doctype: row.reference_doctype,
+                reference_name: row.reference_name,
+                reference_date: row.reference_date,
+                reference_amount: flt(row.reference_amount),
+                outstanding_amount: flt(row.outstanding_amount),
+                party_type: row.party_type,
+                party: row.party,
+                party_name: row.party_name,
+            });
+        }
+    };
 
     const write_party = (party) => {
         set_dialog_values(dialog, {
@@ -1053,15 +1220,17 @@ function open_payment_line_dialog(frm, row_name) {
 
     const update_reference_field_visibility = () => {
         const reference_type = dialog.get_value("reference_type");
-        const show_reference = Boolean(reference_type && reference_type !== "No Reference");
+        const show_reference = reference_type_supports_multi(reference_type);
         const reference_field = dialog.fields_dict.reference_name;
 
         if (reference_field) {
-            reference_field.df.label = reference_type || __("Reference");
-            reference_field.df.reqd = show_reference ? 1 : 0;
+            reference_field.df.label = show_reference ? __("Add Reference") : __("Reference");
+            reference_field.df.reqd = 0;
             reference_field.refresh();
         }
         toggle_dialog_field("reference_name", show_reference);
+        toggle_dialog_field("references_html", show_reference);
+        render_references_list();
     };
 
     const update_payment_terms_visibility = () => {
@@ -1238,26 +1407,52 @@ function open_payment_line_dialog(frm, row_name) {
         });
 
         set_row_value("reference_doctype", values.reference_doctype);
-        set_row_value("reference_name", values.reference_name);
+        // Primary reference (back-compat / grid display) = first selected ref
+        const first_ref = selectedReferences[0];
+        const primary_ref_name = first_ref ? first_ref.reference_name : "";
+        set_row_value("reference_name", primary_ref_name);
 
         if (values.reference_type === "Purchase Invoice") {
-            set_row_value("purchase_invoice", values.reference_name);
+            set_row_value("purchase_invoice", primary_ref_name);
             set_row_value("purchase_order", "");
+            set_row_value("purchase_receipt", "");
             set_row_value("work_order_reference", "");
         } else if (values.reference_type === "Purchase Order") {
-            set_row_value("purchase_order", values.reference_name);
+            set_row_value("purchase_order", primary_ref_name);
             set_row_value("purchase_invoice", "");
+            set_row_value("purchase_receipt", "");
+            set_row_value("work_order_reference", "");
+        } else if (values.reference_type === "Purchase Receipt") {
+            set_row_value("purchase_receipt", primary_ref_name);
+            set_row_value("purchase_invoice", "");
+            set_row_value("purchase_order", "");
             set_row_value("work_order_reference", "");
         } else if (values.reference_type === "Work Order") {
             set_row_value("work_order_doctype", values.reference_doctype);
-            set_row_value("work_order_reference", values.reference_name);
+            set_row_value("work_order_reference", primary_ref_name);
             set_row_value("purchase_invoice", "");
             set_row_value("purchase_order", "");
+            set_row_value("purchase_receipt", "");
         } else {
             set_row_value("purchase_invoice", "");
             set_row_value("purchase_order", "");
+            set_row_value("purchase_receipt", "");
             set_row_value("work_order_reference", "");
         }
+
+        // Replace child references on the row
+        row.references = [];
+        if (reference_type_supports_multi(values.reference_type)) {
+            selectedReferences.forEach((ref) => {
+                const child = frappe.model.add_child(row, "Payment Indent Item Reference", "references");
+                child.reference_doctype = ref.reference_doctype;
+                child.reference_name = ref.reference_name;
+                child.reference_date = ref.reference_date;
+                child.reference_amount = flt(ref.reference_amount);
+                child.outstanding_amount = flt(ref.outstanding_amount);
+            });
+        }
+        frm.refresh_field("items");
     };
 
     const clear_dialog_for_next = () => {
@@ -1283,8 +1478,10 @@ function open_payment_line_dialog(frm, row_name) {
             balance_type: "",
         });
         render_party_results([], "");
+        selectedReferences = [];
         update_reference_field_visibility();
         update_payment_terms_visibility();
+        render_references_list();
         dialog.fields_dict.party_search.$input.focus();
     };
 
@@ -1304,8 +1501,8 @@ function open_payment_line_dialog(frm, row_name) {
             values.party_search = `${text} (Other)`;
         }
 
-        if (values.reference_type !== "No Reference" && !values.reference_name) {
-            frappe.msgprint(__("Select a reference for the chosen Reference Type."));
+        if (reference_type_supports_multi(values.reference_type) && !selectedReferences.length) {
+            frappe.msgprint(__("Add at least one reference for the chosen Reference Type."));
             return;
         }
 
@@ -1347,7 +1544,7 @@ function open_payment_line_dialog(frm, row_name) {
             company: existing_row.company,
             reference_type: existing_row.reference_type,
             reference_doctype: existing_row.reference_doctype,
-            reference_name: existing_row.reference_name,
+            reference_name: "",  // picker stays empty; the list shows what's already picked
             payment_terms: existing_row.payment_terms,
             payment_terms_other: existing_row.payment_terms_other,
             requested_amount: existing_row.requested_amount,
@@ -1358,6 +1555,8 @@ function open_payment_line_dialog(frm, row_name) {
             party_balance: existing_row.party_balance,
             balance_type: existing_row.balance_type,
         });
+        seed_references_from_row(existing_row);
+        render_references_list();
     } else {
         render_party_results([], "");
     }
@@ -1376,6 +1575,9 @@ function open_payment_line_dialog(frm, row_name) {
 
     const on_reference_type_change = () => {
         const reference_type = dialog.get_value("reference_type");
+        // Switching type invalidates any previously picked refs (they belong to a different doctype)
+        selectedReferences = [];
+        sync_aggregates_to_dialog();
         clear_dialog_reference_snapshot();
         update_reference_field_visibility();
         get_reference_doctype_for_type(reference_type, (doctype) => {
@@ -1392,13 +1594,19 @@ function open_payment_line_dialog(frm, row_name) {
         }
     };
     bind_dialog_field_change("payment_terms", on_payment_terms_change);
-    bind_dialog_field_change("reference_name", fetch_dialog_reference);
+    bind_dialog_field_change("reference_name", () => {
+        const picked = dialog.fields_dict.reference_name && dialog.fields_dict.reference_name.get_value();
+        if (picked) add_selected_reference_to_list(picked);
+    });
     dialog.fields_dict.reference_name.get_query = () => {
         const values = get_payment_line_dialog_values(true);
         const filters = {};
-        if (values.reference_doctype === "Purchase Invoice" || values.reference_doctype === "Purchase Order") {
+        if (["Purchase Invoice", "Purchase Order", "Purchase Receipt"].includes(values.reference_doctype)) {
             filters.docstatus = 1;
-            if (values.party_type === "Supplier" && values.party) filters.supplier = values.party;
+            // Once a first ref locks the party, restrict the picker to that supplier
+            const locked_party = selectedReferences[0] && selectedReferences[0].party;
+            const supplier = locked_party || (values.party_type === "Supplier" ? values.party : null);
+            if (supplier) filters.supplier = supplier;
             if (values.company) filters.company = values.company;
         }
         return { filters };

@@ -11,6 +11,7 @@
   "company",
   "reference_type",
   "reference_name",
+  "references",
   "payment_terms",
   "payment_terms_other",
   "reference_doctype",
@@ -19,6 +20,7 @@
   "party_name",
   "purchase_invoice",
   "purchase_order",
+  "purchase_receipt",
   "work_order_doctype",
   "work_order_reference",
   "reference_snapshot_section",
@@ -91,7 +93,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Reference Type",
-   "options": "\nPurchase Invoice\nPurchase Order\nWork Order\nNo Reference",
+   "options": "\nPurchase Invoice\nPurchase Order\nPurchase Receipt\nWork Order\nNo Reference",
    "reqd": 1
   },
   {
@@ -126,6 +128,21 @@
    "hidden": 1,
    "label": "Purchase Order",
    "options": "Purchase Order"
+  },
+  {
+   "depends_on": "eval:doc.reference_type==\"Purchase Receipt\"",
+   "fieldname": "purchase_receipt",
+   "fieldtype": "Link",
+   "hidden": 1,
+   "label": "Purchase Receipt",
+   "options": "Purchase Receipt"
+  },
+  {
+   "description": "Multiple references for this payment line. Populated by the Add/Edit Payment Line dialog. Single-reference rows store one entry here; the primary reference also stays on `Reference` for back-compat and grid display.",
+   "fieldname": "references",
+   "fieldtype": "Table",
+   "label": "References",
+   "options": "Payment Indent Item Reference"
   },
   {
    "fieldname": "work_order_doctype",

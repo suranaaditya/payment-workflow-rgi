@@ -85,12 +85,20 @@
                 </thead>
                 <tbody>
                 {% for row in payment_indent.items %}
-                    {% set reference = row.reference_name or row.purchase_invoice or row.purchase_order or row.work_order_reference or _("No Reference") %}
+                    {% set ref_entries = row.references or [] %}
                     <tr>
                         <td>{{ loop.index }}</td>
                         <td><strong>{{ row.party_search or row.party_name or row.party or "" }}</strong></td>
                         <td>{{ row.company }}</td>
-                        <td>{{ reference }}</td>
+                        <td>
+                            {% if ref_entries %}
+                                {% for ref in ref_entries %}<div>{{ ref.reference_name }}</div>{% endfor %}
+                            {% elif row.reference_name %}
+                                {{ row.reference_name }}
+                            {% else %}
+                                {{ _("No Reference") }}
+                            {% endif %}
+                        </td>
                         <td class="right">{{ frappe.format(row.requested_amount, {"fieldtype": "Currency"}) }}</td>
                         <td class="right"><strong>{{ frappe.format(row.approved_amount, {"fieldtype": "Currency"}) }}</strong></td>
                     </tr>
