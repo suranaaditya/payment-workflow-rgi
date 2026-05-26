@@ -188,6 +188,15 @@ class PaymentIndent(Document):
         if not row.references:
             frappe.throw(_("At least one reference is required in row {0}.").format(row.idx))
 
+        # Frappe occasionally leaves grandchildren as raw dicts when the parent
+        # doc is constructed from JSON (especially on first save of a new doc).
+        # Wrap any plain dicts in frappe._dict so attribute access and mutation
+        # both work uniformly; the save path handles either form.
+        row.references = [
+            ref if not isinstance(ref, dict) else frappe._dict(ref)
+            for ref in row.references
+        ]
+
         seen = set()
         agg_reference_amount = 0
         agg_outstanding = 0
