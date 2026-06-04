@@ -224,6 +224,7 @@
    "fieldtype": "Currency",
    "in_list_view": 1,
    "label": "Approved Amount",
+   "no_copy": 1,
    "read_only": 1
   },
   {
@@ -246,6 +247,7 @@
    "fieldtype": "Select",
    "in_list_view": 1,
    "label": "Row Status",
+   "no_copy": 1,
    "options": "Pending\nApproved\nPartially Approved\nRejected\nHold",
    "read_only": 1
   },
@@ -254,6 +256,7 @@
    "fieldname": "manager_remarks",
    "fieldtype": "Small Text",
    "label": "Manager Remarks",
+   "no_copy": 1,
    "read_only": 1
   },
   {

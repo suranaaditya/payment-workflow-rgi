@@ -66,6 +66,27 @@ class PaymentIndent(Document):
         elif self.workflow_state == "Manager Rejected" and not self.manager_remarks:
             frappe.throw(_("Manager Remarks are required before rejecting a Payment Indent."))
 
+    def before_insert(self):
+        """When the user clicks Amend on a cancelled/rejected indent, Frappe
+        copies the source doc into a Draft. The no_copy flags on approval
+        fields cover most of it, but we belt-and-suspender here in case any
+        amend-source still carries them over (older data on disk, schema
+        edits made before the no_copy flags were added). Items also lose
+        their approved amount + row status so the new draft starts fresh."""
+        if not self.amended_from:
+            return
+        self.workflow_state = "Draft"
+        self.manager_approved_by = None
+        self.manager_approved_on = None
+        self.manager_remarks = None
+        self.pdf_attachment = None
+        self.pdf_generated = 0
+        self.verification_token = None
+        for it in self.items or []:
+            it.approved_amount = 0
+            it.row_status = "Pending"
+            it.manager_remarks = None
+
     def on_submit(self):
         if self.workflow_state != "Manager Approved":
             return

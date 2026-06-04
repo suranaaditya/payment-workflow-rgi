@@ -111,6 +111,7 @@
    "fieldname": "manager_remarks",
    "fieldtype": "Small Text",
    "label": "Manager Remarks",
+   "no_copy": 1,
    "read_only": 1
   },
   {
@@ -118,6 +119,7 @@
    "fieldname": "manager_approved_by",
    "fieldtype": "Link",
    "label": "Manager Approved By",
+   "no_copy": 1,
    "options": "User",
    "read_only": 1
   },
@@ -126,6 +128,7 @@
    "fieldname": "manager_approved_on",
    "fieldtype": "Datetime",
    "label": "Manager Approved On",
+   "no_copy": 1,
    "read_only": 1
   },
   {
@@ -133,6 +136,7 @@
    "fieldname": "workflow_state",
    "fieldtype": "Data",
    "label": "Workflow State",
+   "no_copy": 1,
    "read_only": 1
   },
   {
@@ -141,6 +145,7 @@
    "fieldname": "pdf_generated",
    "fieldtype": "Check",
    "label": "PDF Generated",
+   "no_copy": 1,
    "read_only": 1
   },
   {
@@ -148,6 +153,7 @@
    "fieldname": "pdf_attachment",
    "fieldtype": "Attach",
    "label": "PDF Attachment",
+   "no_copy": 1,
    "read_only": 1
   },
   {
