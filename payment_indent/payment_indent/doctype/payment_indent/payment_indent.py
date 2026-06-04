@@ -73,6 +73,38 @@ class PaymentIndent(Document):
         if settings.auto_generate_pdf_on_manager_approval:
             self.generate_manager_approval_pdf()
 
+    def on_cancel(self):
+        """Reverse the side-effects of approval when the manager cancels
+        the document: flip workflow_state to Cancelled, delete the
+        attached approval PDF, and invalidate the verification token so
+        any printed copy stops verifying on the public verify page."""
+        self.db_set("workflow_state", "Cancelled", update_modified=False)
+        self._remove_approval_pdf()
+        self.db_set("verification_token", None, update_modified=False)
+
+    def _remove_approval_pdf(self):
+        if self.pdf_attachment:
+            file_name = frappe.db.exists(
+                "File",
+                {
+                    "file_url": self.pdf_attachment,
+                    "attached_to_doctype": self.doctype,
+                    "attached_to_name": self.name,
+                },
+            )
+            if file_name:
+                # Signal the on_trash hook to allow this deletion (parent is
+                # being cancelled — the PDF should not survive).
+                self.flags.allow_pdf_delete = True
+                try:
+                    frappe.delete_doc(
+                        "File", file_name, force=1, ignore_permissions=True
+                    )
+                finally:
+                    self.flags.allow_pdf_delete = False
+        self.db_set("pdf_attachment", None, update_modified=False)
+        self.db_set("pdf_generated", 0, update_modified=False)
+
     def set_defaults(self):
         if not self.requested_by:
             self.requested_by = frappe.session.user
@@ -1063,10 +1095,19 @@ def prevent_payment_indent_pdf_delete(doc, method=None):
     payment_indent = frappe.db.get_value(
         "Payment Indent",
         doc.attached_to_name,
-        ["pdf_generated", "pdf_attachment"],
+        ["pdf_generated", "pdf_attachment", "docstatus"],
         as_dict=True,
     )
     if not payment_indent or not payment_indent.pdf_generated:
+        return
+
+    # Allow deletion when the parent indent has been cancelled (docstatus 2)
+    # — the cancellation flow explicitly clears the PDF — or when the
+    # cancellation path sets the flag on the parent doc.
+    if payment_indent.docstatus == 2:
+        return
+    parent = frappe.get_doc("Payment Indent", doc.attached_to_name)
+    if parent.flags.get("allow_pdf_delete"):
         return
 
     expected_file_name = f"{doc.attached_to_name}-approval-report.pdf"
