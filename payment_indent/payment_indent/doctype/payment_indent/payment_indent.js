@@ -1675,16 +1675,41 @@ function open_payment_line_dialog(frm, row_name) {
         const picked = dialog.fields_dict.reference_name && dialog.fields_dict.reference_name.get_value();
         if (picked) add_selected_reference_to_list(picked);
     });
+    // Pre-fetch the configured Work Order field names so the picker can
+    // filter by them just like Purchase Invoice/Order/Receipt do.
+    const wo_field_config = {
+        party_field: "supplier",
+        company_field: "company",
+        loaded: false,
+    };
+    frappe.db.get_value(
+        "Payment Indent Settings",
+        "Payment Indent Settings",
+        ["work_order_party_field", "work_order_company_field"],
+    ).then((r) => {
+        const v = (r && r.message) || {};
+        wo_field_config.party_field = v.work_order_party_field || "supplier";
+        wo_field_config.company_field = v.work_order_company_field || "company";
+        wo_field_config.loaded = true;
+    });
+
     dialog.fields_dict.reference_name.get_query = () => {
         const values = get_payment_line_dialog_values(true);
         const filters = {};
+        const locked_party = selectedReferences[0] && selectedReferences[0].party;
+        const supplier = locked_party || (values.party_type === "Supplier" ? values.party : null);
         if (["Purchase Invoice", "Purchase Order", "Purchase Receipt"].includes(values.reference_doctype)) {
             filters.docstatus = 1;
-            // Once a first ref locks the party, restrict the picker to that supplier
-            const locked_party = selectedReferences[0] && selectedReferences[0].party;
-            const supplier = locked_party || (values.party_type === "Supplier" ? values.party : null);
             if (supplier) filters.supplier = supplier;
             if (values.company) filters.company = values.company;
+        } else if (values.reference_type === "Work Order" && values.reference_doctype) {
+            filters.docstatus = 1;
+            if (supplier && wo_field_config.party_field) {
+                filters[wo_field_config.party_field] = supplier;
+            }
+            if (values.company && wo_field_config.company_field) {
+                filters[wo_field_config.company_field] = values.company;
+            }
         }
         return { filters };
     };
