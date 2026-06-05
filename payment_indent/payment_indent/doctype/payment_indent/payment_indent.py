@@ -470,23 +470,49 @@ def render_company_letterhead(doc):
     through here so the Jinja sandbox never sees a DebugUndefined value
     leak into frappe.db.get_value (which Frappe v16's query builder
     refuses)."""
-    try:
-        items = getattr(doc, "items", None) or []
-        if not items:
-            return ""
-        company = getattr(items[0], "company", None)
-        if not company or not isinstance(company, str):
-            return ""
-        letter_head = frappe.db.get_value("Company", company, "default_letter_head")
-        if not letter_head:
-            return ""
-        content = frappe.db.get_value("Letter Head", letter_head, "content")
-        if not content:
-            return ""
-        return frappe.render_template(content, {"doc": doc})
-    except Exception:
-        frappe.log_error(title="payment_indent letterhead render failed")
+    items = getattr(doc, "items", None) or []
+    if not items:
         return ""
+    company = getattr(items[0], "company", None)
+    if not company or not isinstance(company, str):
+        return ""
+    letter_head = frappe.db.get_value("Company", company, "default_letter_head")
+    if not letter_head:
+        return ""
+    content = frappe.db.get_value("Letter Head", letter_head, "content")
+    if not content:
+        return ""
+
+    # frappe.render_template calls msgprint("Context Error", ...) on Jinja
+    # failures before re-raising, and that message survives in
+    # frappe.message_log even after our except catches the raise — Frappe
+    # then displays it as a blocking popup to the user. Snapshot/restore
+    # the message log so a failed letter-head render fails silently; the
+    # letter head is decorative and a missing one shouldn't block the
+    # whole approval flow with a stack trace dialog.
+    saved_log = list(getattr(frappe.local, "message_log", []) or [])
+    try:
+        # Provide a richer context so Letter Head templates that reach
+        # for `letter_head_doc`, `company` or similar have something to
+        # bind to instead of resolving to DebugUndefined.
+        ctx = {"doc": doc}
+        try:
+            ctx["letter_head_doc"] = frappe.get_doc("Letter Head", letter_head)
+        except Exception:
+            pass
+        try:
+            ctx["company"] = frappe.get_doc("Company", company)
+        except Exception:
+            pass
+        return frappe.render_template(content, ctx)
+    except Exception:
+        # Drop any messages Frappe added while complaining about the
+        # render failure, then fall back to the raw content so the page
+        # still shows the company branding even if some templated bits
+        # didn't resolve.
+        if hasattr(frappe.local, "message_log"):
+            frappe.local.message_log = saved_log
+        return content
 
 
 def user_full_name(user):
