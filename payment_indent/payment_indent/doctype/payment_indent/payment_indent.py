@@ -464,6 +464,42 @@ def get_settings():
     return frappe.get_single("Payment Indent Settings")
 
 
+def render_company_letterhead(doc):
+    """Jinja-callable. Returns the rendered letter head HTML for the
+    first item's company, or "" on any missing piece. All DB calls go
+    through here so the Jinja sandbox never sees a DebugUndefined value
+    leak into frappe.db.get_value (which Frappe v16's query builder
+    refuses)."""
+    try:
+        items = getattr(doc, "items", None) or []
+        if not items:
+            return ""
+        company = getattr(items[0], "company", None)
+        if not company or not isinstance(company, str):
+            return ""
+        letter_head = frappe.db.get_value("Company", company, "default_letter_head")
+        if not letter_head:
+            return ""
+        content = frappe.db.get_value("Letter Head", letter_head, "content")
+        if not content:
+            return ""
+        return frappe.render_template(content, {"doc": doc})
+    except Exception:
+        frappe.log_error(title="payment_indent letterhead render failed")
+        return ""
+
+
+def user_full_name(user):
+    """Jinja-callable. Safe user.full_name lookup that falls back to the
+    user id (or empty string) on undefined / missing user."""
+    if not user or not isinstance(user, str):
+        return ""
+    try:
+        return frappe.db.get_value("User", user, "full_name") or user
+    except Exception:
+        return user
+
+
 def approver_display_label(user):
     """Jinja-callable. Returns "Executive Director" for the configured ED user,
     otherwise the user's full_name (or the user id as last resort)."""

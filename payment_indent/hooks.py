@@ -11,6 +11,8 @@ jinja = {
     "methods": [
         "payment_indent.payment_indent.doctype.payment_indent.payment_indent.approver_display_label",
         "payment_indent.payment_indent.doctype.payment_indent.payment_indent.get_verification_qr",
+        "payment_indent.payment_indent.doctype.payment_indent.payment_indent.render_company_letterhead",
+        "payment_indent.payment_indent.doctype.payment_indent.payment_indent.user_full_name",
     ],
 }
 
