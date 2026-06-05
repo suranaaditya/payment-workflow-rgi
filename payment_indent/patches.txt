@@ -8,3 +8,4 @@ payment_indent.patches.v0_0.create_payment_indent_roles
 payment_indent.patches.v0_0.reload_approval_print_format
 payment_indent.patches.v0_0.backfill_payment_indent_references
 payment_indent.patches.v0_0.rehome_grandchild_references
+payment_indent.patches.v0_0.add_cancelled_workflow_state
