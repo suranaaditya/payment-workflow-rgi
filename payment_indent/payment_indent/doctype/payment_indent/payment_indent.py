@@ -507,12 +507,15 @@ def render_company_letterhead(doc):
         return frappe.render_template(content, ctx)
     except Exception:
         # Drop any messages Frappe added while complaining about the
-        # render failure, then fall back to the raw content so the page
-        # still shows the company branding even if some templated bits
-        # didn't resolve.
+        # render failure. We return "" rather than the raw content
+        # because the raw content carries unresolved Jinja inside
+        # `<img src="{{ ... }}">` tags, which wkhtmltopdf then refuses
+        # with "PDF generation failed because of broken image links".
+        # A missing letter head is harmless; a broken one breaks the
+        # whole PDF generation step.
         if hasattr(frappe.local, "message_log"):
             frappe.local.message_log = saved_log
-        return content
+        return ""
 
 
 def user_full_name(user):
