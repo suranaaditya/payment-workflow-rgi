@@ -16,7 +16,6 @@ APPROVAL_STATES = {"Pending Manager Approval", "Manager Approved"}
 
 # Approvers whose name is replaced by a role title on the approval PDF and the verify page.
 # The DB record always keeps the real user (manager_approved_by) for audit.
-EXECUTIVE_DIRECTOR_USER = "shraddha.surana@raisoni.net"
 EXECUTIVE_DIRECTOR_TITLE = "Executive Director"
 
 
@@ -530,11 +529,22 @@ def user_full_name(user):
 
 
 def approver_display_label(user):
-    """Jinja-callable. Returns "Executive Director" for the configured ED user,
-    otherwise the user's full_name (or the user id as last resort)."""
+    """Jinja-callable. When the Payment Indent Settings flag
+    force_executive_director_label is enabled (the default), every approver is
+    shown as the fixed title "Executive Director" on the approval PDF and the
+    verify page. When disabled, the real full_name of the approver is shown."""
     if not user:
         return ""
-    if user == EXECUTIVE_DIRECTOR_USER:
+    try:
+        force_label = frappe.db.get_single_value(
+            "Payment Indent Settings", "force_executive_director_label"
+        )
+    except Exception:
+        frappe.log_error(title="payment_indent: force_executive_director_label lookup failed")
+        force_label = 1
+    if force_label is None:
+        force_label = 1
+    if cint(force_label):
         return EXECUTIVE_DIRECTOR_TITLE
     return frappe.db.get_value("User", user, "full_name") or user
 

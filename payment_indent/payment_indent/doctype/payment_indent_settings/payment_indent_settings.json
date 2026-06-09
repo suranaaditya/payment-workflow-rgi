@@ -11,6 +11,7 @@
   "auto_generate_pdf_on_manager_approval",
   "allow_self_approval",
   "default_declaration_note",
+  "force_executive_director_label",
   "approval_otp_section",
   "require_approval_otp",
   "otp_issuer_name",
@@ -67,6 +68,13 @@
    "fieldname": "default_declaration_note",
    "fieldtype": "Small Text",
    "label": "Default Declaration Note"
+  },
+  {
+   "default": "1",
+   "description": "When enabled, the approval PDF and verify page show \"Executive Director\" as the approver in both \"Approved By\" fields, for every approver. When disabled, the actual approver full name is shown.",
+   "fieldname": "force_executive_director_label",
+   "fieldtype": "Check",
+   "label": "Show \"Executive Director\" as Approved By"
   },
   {
    "fieldname": "approval_otp_section",
