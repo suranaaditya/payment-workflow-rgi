@@ -28,6 +28,9 @@ const PAYMENT_TERMS_OPTIONS = [
     "Others",
 ].join("\n");
 
+// Same rupee tolerance the server uses when comparing with a Work Order's remaining value.
+const WORK_ORDER_AMOUNT_TOLERANCE = 1;
+
 function recalculate_totals(frm) {
     const rows = frm.doc.items || [];
     const total_requested = rows.reduce((sum, row) => sum + flt(row.requested_amount), 0);
@@ -561,6 +564,28 @@ function open_approval_workbench(frm) {
         return;
     }
 
+    // Work Order figures are fetched live: the outstanding stored on the line is
+    // a save-time snapshot and other indents may have been approved since.
+    const has_work_order_lines = (frm.doc.items || []).some((row) => row.reference_type === "Work Order");
+    if (!has_work_order_lines) {
+        render_approval_workbench(frm, {});
+        return;
+    }
+    frappe.call({
+        method: `${PAYMENT_INDENT_METHOD}.get_work_order_commitments`,
+        args: { payment_indent_name: frm.doc.name },
+        freeze: true,
+        freeze_message: __("Loading Work Order balances"),
+    }).then(
+        (r) => render_approval_workbench(frm, r.message || {}),
+        () => {
+            frappe.show_alert({ message: __("Could not load Work Order balances"), indicator: "orange" });
+            render_approval_workbench(frm, {});
+        }
+    );
+}
+
+function render_approval_workbench(frm, work_order_commitments) {
     const dialog = new frappe.ui.Dialog({
         title: __("Review & Approve Payments"),
         fields: [
@@ -590,6 +615,60 @@ function open_approval_workbench(frm) {
 
     const money = (value) => format_currency(flt(value), frm.doc.currency || undefined);
 
+    // Totals across the Work Orders on a line (one per line going forward;
+    // older lines may still carry several).
+    const work_order_summary = (row) => {
+        const commitments = row && work_order_commitments[row.name];
+        if (!row || row.reference_type !== "Work Order" || !commitments || !commitments.length) return null;
+        return commitments.reduce(
+            (summary, commitment) => ({
+                value: summary.value + flt(commitment.value),
+                approved: summary.approved + flt(commitment.approved),
+                pending: summary.pending + flt(commitment.pending),
+                remaining: summary.remaining + flt(commitment.remaining),
+                estimated: summary.estimated || !!commitment.has_estimate,
+                approved_entries: summary.approved_entries.concat(commitment.approved_entries || []),
+            }),
+            { value: 0, approved: 0, pending: 0, remaining: 0, estimated: false, approved_entries: [] }
+        );
+    };
+
+    const indent_link = (name) =>
+        `<a href="/app/payment-indent/${encodeURIComponent(name)}" target="_blank" rel="noopener noreferrer">${frappe.utils.escape_html(name)}</a>`;
+
+    const requested_cell = (row) => {
+        const summary = work_order_summary(row);
+        if (!summary) {
+            return `
+                <div>${money(row.requested_amount)}</div>
+                <div class="text-muted small">${__("Outstanding")} ${money(row.outstanding_amount)}</div>
+            `;
+        }
+        const approved_in = summary.approved_entries
+            .map((entry) => `${indent_link(entry.payment_indent)} ${money(entry.amount)}${entry.estimated ? "*" : ""}`)
+            .join("<br>");
+        const exceeds = flt(row.requested_amount) > summary.remaining + WORK_ORDER_AMOUNT_TOLERANCE;
+        return `
+            <div>${money(row.requested_amount)}</div>
+            <div class="text-muted small">${__("WO value")} ${money(summary.value)}</div>
+            <div class="text-muted small">${__("Approved earlier")} ${money(summary.approved)}</div>
+            ${approved_in ? `<div class="text-muted small work-order-approved-in">${approved_in}</div>` : ""}
+            ${summary.pending ? `<div class="text-muted small">${__("Pending on other indents")} ${money(summary.pending)}</div>` : ""}
+            <div class="small ${exceeds ? "text-danger" : ""}"><strong>${__("Remaining")} ${money(summary.remaining)}</strong></div>
+            ${summary.estimated ? `<div class="text-muted small">* ${__("line shared with another Work Order, counted in full until its split is entered")}</div>` : ""}
+        `;
+    };
+
+    const balance_cell = (row) => {
+        if (row.party_type === "Other") {
+            return `<div class="text-muted small">${__("Not linked to a party")}</div>`;
+        }
+        return `
+            <div>${money(row.party_balance)}</div>
+            <div class="text-muted small">${html_escape(row.balance_type)}</div>
+        `;
+    };
+
     const decision_for_row = (row) => {
         const approved = flt(row.approved_amount);
         const requested = flt(row.requested_amount);
@@ -615,14 +694,8 @@ function open_approval_workbench(frm) {
                             <div class="small">${payment_line_references_html(row, frm.doc.references)}</div>
                             <div class="text-muted small">${html_escape(row.payment_terms === "Others" ? row.payment_terms_other : row.payment_terms)}</div>
                         </td>
-                        <td class="text-right">
-                            <div>${money(row.requested_amount)}</div>
-                            <div class="text-muted small">Outstanding ${money(row.outstanding_amount)}</div>
-                        </td>
-                        <td class="text-right">
-                            <div>${money(row.party_balance)}</div>
-                            <div class="text-muted small">${html_escape(row.balance_type)}</div>
-                        </td>
+                        <td class="text-right">${requested_cell(row)}</td>
+                        <td class="text-right">${balance_cell(row)}</td>
                         <td>
                             <input class="form-control input-sm approved-amount text-right" type="number" step="0.01" min="0" value="${flt(row.approved_amount) || ""}">
                             <div class="btn-group btn-group-xs mt-2 quick-actions" role="group">
@@ -701,10 +774,26 @@ function open_approval_workbench(frm) {
             })
             .get();
 
+    // Single-Work-Order lines grouped by amendment chain: the server checks the
+    // sum approved on all lines of one Work Order against its remaining value.
+    const work_order_chain_key = (row) => {
+        const commitments = row && row.reference_type === "Work Order" && work_order_commitments[row.name];
+        return commitments && commitments.length === 1 ? (commitments[0].chain || []).join("|") : null;
+    };
+
     const recalculate_review_summary = () => {
         let requested = 0;
         let approved = 0;
         const counts = { Approved: 0, "Partially Approved": 0, Rejected: 0, Hold: 0, Pending: 0 };
+
+        const approved_by_chain = {};
+        wrapper().find("tbody tr").each(function () {
+            const row = rows.find((item) => item.name === $(this).attr("data-row-name"));
+            const key = work_order_chain_key(row);
+            if (key) {
+                approved_by_chain[key] = (approved_by_chain[key] || 0) + flt($(this).find(".approved-amount").val());
+            }
+        });
 
         wrapper().find("tbody tr").each(function () {
             const row = rows.find((item) => item.name === $(this).attr("data-row-name"));
@@ -712,6 +801,9 @@ function open_approval_workbench(frm) {
             const approved_amount = flt($(this).find(".approved-amount").val());
             const remarks = ($(this).find(".manager-remarks").val() || "").trim();
             const requested_amount = flt(row && row.requested_amount);
+            const summary = work_order_summary(row);
+            const chain_key = work_order_chain_key(row);
+            const approved_on_work_order = chain_key ? approved_by_chain[chain_key] : approved_amount;
 
             requested += requested_amount;
             approved += approved_amount;
@@ -725,7 +817,8 @@ function open_approval_workbench(frm) {
                 "invalid-decision",
                 approved_amount < 0 ||
                     approved_amount > requested_amount ||
-                    (status === "Partially Approved" && (approved_amount <= 0 || approved_amount >= requested_amount))
+                    (status === "Partially Approved" && (approved_amount <= 0 || approved_amount >= requested_amount)) ||
+                    !!(summary && approved_amount > 0 && approved_on_work_order > summary.remaining + WORK_ORDER_AMOUNT_TOLERANCE)
             );
         });
 
@@ -809,10 +902,9 @@ function open_approval_workbench(frm) {
                     }
 
                     frappe.call({
-                        method: "frappe.model.workflow.apply_workflow",
+                        method: `${PAYMENT_INDENT_METHOD}.approve_payment_indent`,
                         args: {
-                            doc: frm.doc,
-                            action: "Approve",
+                            payment_indent_name: frm.doc.name,
                             approval_otp,
                         },
                         freeze: true,
@@ -1031,6 +1123,9 @@ function open_payment_line_dialog(frm, row_name) {
             `).join("");
         const sum_ref = selectedReferences.reduce((s, r) => s + flt(r.reference_amount), 0);
         const sum_out = selectedReferences.reduce((s, r) => s + flt(r.outstanding_amount), 0);
+        // For a Work Order the outstanding is what is left after other approved indents.
+        const outstanding_label =
+            dialog.get_value("reference_type") === "Work Order" ? __("Remaining") : __("Outstanding");
         $wrapper.html(`
             <style>
                 .pi-refs-table { width: 100%; border-collapse: collapse; margin: 6px 0 8px; font-size: 12px; }
@@ -1042,13 +1137,13 @@ function open_payment_line_dialog(frm, row_name) {
             </style>
             <table class="pi-refs-table">
                 <thead>
-                    <tr><th style="width:30px;">#</th><th>${__("Reference")}</th><th style="width:90px;">${__("Date")}</th><th style="width:110px;" class="text-right">${__("Amount")}</th><th style="width:110px;" class="text-right">${__("Outstanding")}</th><th style="width:36px;"></th></tr>
+                    <tr><th style="width:30px;">#</th><th>${__("Reference")}</th><th style="width:90px;">${__("Date")}</th><th style="width:110px;" class="text-right">${__("Amount")}</th><th style="width:110px;" class="text-right">${outstanding_label}</th><th style="width:36px;"></th></tr>
                 </thead>
                 <tbody>${rows_html}</tbody>
             </table>
             <div class="pi-refs-totals">
                 ${__("Total")}: <strong>${format_currency_safe(sum_ref)}</strong> &middot;
-                ${__("Outstanding")}: <strong>${format_currency_safe(sum_out)}</strong>
+                ${outstanding_label}: <strong>${format_currency_safe(sum_out)}</strong>
             </div>
         `);
         $wrapper.find(".remove-ref").on("click", function () {
@@ -1090,6 +1185,15 @@ function open_payment_line_dialog(frm, row_name) {
         if (!ref_name) return;
         if (selectedReferences.some((r) => r.reference_name === ref_name)) {
             frappe.show_alert({ message: __("{0} is already in the list.", [ref_name]), indicator: "orange" });
+            return;
+        }
+        if (reference_type === "Work Order" && selectedReferences.length) {
+            frappe.msgprint(
+                __("Only one Work Order is allowed per payment line. Remove {0} first, or add another payment line.", [
+                    selectedReferences[0].reference_name,
+                ])
+            );
+            set_dialog_values(dialog, { reference_name: "" });
             return;
         }
         frappe.call({
@@ -1278,9 +1382,21 @@ function open_payment_line_dialog(frm, row_name) {
         const reference_field = dialog.fields_dict.reference_name;
 
         if (reference_field) {
-            reference_field.df.label = show_reference ? __("Add Reference") : __("Reference");
+            const single_work_order = reference_type === "Work Order";
+            reference_field.df.label = single_work_order
+                ? __("Work Order")
+                : show_reference
+                  ? __("Add Reference")
+                  : __("Reference");
             reference_field.df.reqd = 0;
             reference_field.refresh();
+            if (reference_field.set_description) {
+                reference_field.set_description(
+                    single_work_order
+                        ? __("Pick the Work Order for this line. One Work Order per payment line.")
+                        : __("Pick a reference and it will be added below. You can add multiple.")
+                );
+            }
         }
         toggle_dialog_field("reference_name", show_reference);
         toggle_dialog_field("references_html", show_reference);
@@ -1565,6 +1681,13 @@ function open_payment_line_dialog(frm, row_name) {
             values.party_search = `${text} (Other)`;
         }
 
+        if (values.reference_type === "Work Order" && selectedReferences.length > 1) {
+            frappe.msgprint(
+                __("Only one Work Order is allowed per payment line. Remove all but one, and add a separate line for each other Work Order.")
+            );
+            return;
+        }
+
         if (reference_type_supports_multi(values.reference_type) && !selectedReferences.length) {
             frappe.msgprint(__("Add at least one reference for the chosen Reference Type."));
             return;
@@ -1578,6 +1701,22 @@ function open_payment_line_dialog(frm, row_name) {
         if (flt(values.requested_amount) <= 0) {
             frappe.msgprint(__("Requested Amount must be greater than zero."));
             return;
+        }
+
+        if (values.reference_type === "Work Order") {
+            const remaining = selectedReferences.reduce((sum, ref) => sum + flt(ref.outstanding_amount), 0);
+            if (flt(values.requested_amount) > remaining + WORK_ORDER_AMOUNT_TOLERANCE) {
+                frappe.show_alert(
+                    {
+                        message: __("Requested {0} is more than the {1} remaining on this Work Order. It cannot be approved above the remaining amount.", [
+                            format_currency_safe(values.requested_amount),
+                            format_currency_safe(remaining),
+                        ]),
+                        indicator: "orange",
+                    },
+                    8
+                );
+            }
         }
 
         const row = get_or_create_payment_line_row(frm, current_row_name);
@@ -1650,7 +1789,12 @@ function open_payment_line_dialog(frm, row_name) {
             "Purchase Receipt": "Purchase Receipt",
         }[reference_type];
         const currentDoctype = selectedReferences[0] && selectedReferences[0].reference_doctype;
-        const type_mismatch = expectedDoctype && currentDoctype && currentDoctype !== expectedDoctype;
+        const purchase_doctypes = ["Purchase Invoice", "Purchase Order", "Purchase Receipt"];
+        // The Work Order doctype comes from settings, so only a switch from a
+        // purchase document is detectable here; that list must not carry over.
+        const type_mismatch =
+            (expectedDoctype && currentDoctype && currentDoctype !== expectedDoctype) ||
+            (reference_type === "Work Order" && purchase_doctypes.includes(currentDoctype));
         if (!selectedReferences.length || type_mismatch) {
             selectedReferences = [];
             sync_aggregates_to_dialog();
@@ -1804,7 +1948,11 @@ frappe.ui.form.on("Payment Indent", {
         schedule_clear_default_company(frm);
     },
 
-    items_remove(frm) {
+    items_remove(frm, cdt, cdn) {
+        // Drop the removed line's references, otherwise the server would
+        // rebind them by position to whichever line moved into its place.
+        frm.doc.references = (frm.doc.references || []).filter((ref) => ref.payment_indent_item !== cdn);
+        frm.refresh_field("references");
         recalculate_totals(frm);
     },
 });

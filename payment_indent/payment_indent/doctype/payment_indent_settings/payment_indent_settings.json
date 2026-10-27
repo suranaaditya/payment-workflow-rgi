@@ -27,6 +27,8 @@
   "work_order_company_field",
   "work_order_amount_field",
   "work_order_balance_field",
+  "work_order_outstanding_basis",
+  "block_work_order_overcommitment",
   "work_order_date_field",
   "work_order_status_field",
   "work_order_required_status",
@@ -160,9 +162,25 @@
    "label": "Work Order Amount Field"
   },
   {
+   "description": "Used only when Work Order Outstanding Basis is \"Work Order Balance Field\".",
    "fieldname": "work_order_balance_field",
    "fieldtype": "Data",
    "label": "Work Order Balance Field"
+  },
+  {
+   "default": "Work Order Amount less Approved Indents",
+   "description": "\"Work Order Amount less Approved Indents\": the Work Order Amount Field minus what other Manager Approved Payment Indents have approved against the same Work Order and its amendments. \"Work Order Balance Field\": the Work Order Balance Field value as is.",
+   "fieldname": "work_order_outstanding_basis",
+   "fieldtype": "Select",
+   "label": "Work Order Outstanding Basis",
+   "options": "Work Order Amount less Approved Indents\nWork Order Balance Field"
+  },
+  {
+   "default": "1",
+   "description": "Stop a manager from approving more against a Work Order than its remaining outstanding.",
+   "fieldname": "block_work_order_overcommitment",
+   "fieldtype": "Check",
+   "label": "Block Approval Above Work Order Outstanding"
   },
   {
    "fieldname": "work_order_date_field",
@@ -190,7 +208,7 @@
  "index_web_pages_for_search": 1,
  "issingle": 1,
  "links": [],
- "modified": "2026-05-22 15:19:58.946852",
+ "modified": "2026-10-27 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Payment Indent",
  "name": "Payment Indent Settings",

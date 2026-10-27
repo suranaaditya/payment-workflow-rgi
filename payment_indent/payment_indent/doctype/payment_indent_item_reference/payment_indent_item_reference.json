@@ -12,7 +12,8 @@
   "reference_name",
   "reference_date",
   "reference_amount",
-  "outstanding_amount"
+  "outstanding_amount",
+  "allocated_amount"
  ],
  "fields": [
   {
@@ -71,13 +72,20 @@
    "in_list_view": 1,
    "label": "Outstanding",
    "read_only": 1
+  },
+  {
+   "description": "Only for older lines that carry more than one Work Order: the part of the line's approved amount that belongs to this Work Order. Set by an administrator once the split is confirmed. Until the allocations on a line add up to its approved amount, each Work Order is charged the line amount up to its own value.",
+   "fieldname": "allocated_amount",
+   "fieldtype": "Currency",
+   "label": "Allocated Approved Amount",
+   "read_only": 1
   }
  ],
  "grid_page_length": 50,
  "index_web_pages_for_search": 0,
  "istable": 1,
  "links": [],
- "modified": "2026-05-25 12:00:00.000000",
+ "modified": "2026-10-27 00:00:00.000000",
  "modified_by": "Administrator",
  "module": "Payment Indent",
  "name": "Payment Indent Item Reference",

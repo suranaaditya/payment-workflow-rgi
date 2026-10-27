@@ -6,7 +6,7 @@ import re
 import frappe
 from frappe import _
 from frappe.model.document import Document
-from frappe.utils import cint, flt, getdate, now_datetime, today
+from frappe.utils import cint, flt, fmt_money, getdate, now_datetime, today
 
 
 PAYMENT_CREATOR_ROLE = "Payment Creator"
@@ -18,18 +18,66 @@ APPROVAL_STATES = {"Pending Manager Approval", "Manager Approved"}
 # The DB record always keeps the real user (manager_approved_by) for audit.
 EXECUTIVE_DIRECTOR_TITLE = "Executive Director"
 
+# How the outstanding of a Work Order line is worked out (Payment Indent Settings).
+WORK_ORDER_BASIS_APPROVED = "Work Order Amount less Approved Indents"
+WORK_ORDER_BASIS_BALANCE_FIELD = "Work Order Balance Field"
+# Rupee tolerance when comparing amounts with a Work Order's remaining value
+# (Work Order totals carry paise; requests are usually whole rupees).
+WORK_ORDER_AMOUNT_TOLERANCE = 1
+
 
 class PaymentIndent(Document):
     def validate(self):
+        self.validate_submit_through_workflow()
+        self.flags.relaxed_reference_checks = self.is_leaving_pending_without_approval()
         self.set_defaults()
         self.resolve_row_parties()
-        self.refresh_party_balances()
         self.calculate_totals()
         self.validate_child_rows()
         self.validate_reference_documents()
+        # After the references: a reference can replace the row's party (e.g. a
+        # Work Order's supplier), and the balance must be for that party.
+        self.refresh_party_balances()
         self.validate_no_reference_requirements()
         if self.workflow_state == "Manager Approved":
             self.validate_manager_approval()
+
+    def validate_submit_through_workflow(self):
+        """Submitting is only valid as the Approve or Reject workflow action. A
+        plain submit (API, list view) still has the old state here, so it would
+        skip the approval checks, the approval OTP and the Work Order block, and
+        Frappe would then move it to the first submitted state, Manager Approved."""
+        if getattr(self, "_action", None) == "submit" and self.workflow_state not in (
+            "Manager Approved",
+            "Manager Rejected",
+        ):
+            frappe.throw(_("Use the Approve or Reject workflow action to submit a Payment Indent."))
+
+    def is_leaving_pending_without_approval(self):
+        """Reject and Return for Correction must still go through when a line's
+        Work Order was cancelled since, or a legacy line carries two Work Orders."""
+        if self.workflow_state not in ("Manager Rejected", "Returned for Correction"):
+            return False
+        before = self.get_doc_before_save()
+        return bool(before and before.workflow_state == "Pending Manager Approval")
+
+    def before_update_after_submit(self):
+        """Approved amounts are fixed at approval. approved_amount and row_status
+        are allow_on_submit for the approval flow's own writes, so refuse changes
+        sent through the API that would sidestep the approval checks."""
+        before = self.get_doc_before_save()
+        if not before:
+            return
+        approved_before = {row.name: (flt(row.approved_amount), row.row_status) for row in before.items}
+        for row in self.items:
+            previous = approved_before.get(row.name)
+            if previous and previous != (flt(row.approved_amount), row.row_status):
+                frappe.throw(
+                    _(
+                        "Row {0}: the approved amount and status cannot be changed after approval. "
+                        "Cancel and amend the Payment Indent instead."
+                    ).format(row.idx)
+                )
 
     def before_workflow_action(self):
         action = getattr(self, "workflow_action", None) or frappe.form_dict.get("workflow_action")
@@ -193,9 +241,20 @@ class PaymentIndent(Document):
         # within a save cycle).
         items_by_name = {it.name: it for it in self.items}
         items_by_idx = {int(it.idx or 0): it for it in self.items}
+        saved_items = set()
+        if not self.is_new():
+            saved_items = set(
+                frappe.get_all(
+                    "Payment Indent Item", filters={"parent": self.name, "parenttype": self.doctype}, pluck="name"
+                )
+            )
         for ref in self.references:
             current = ref.get("payment_indent_item") if isinstance(ref, dict) else ref.payment_indent_item
             if current and current in items_by_name:
+                continue
+            if current and current in saved_items:
+                # Its line was deleted from this indent; rebinding by position
+                # would attach it to whichever line moved into that slot.
                 continue
             idx = ref.get("payment_indent_item_idx") if isinstance(ref, dict) else ref.payment_indent_item_idx
             target = items_by_idx.get(int(idx or 0))
@@ -204,6 +263,14 @@ class PaymentIndent(Document):
                     ref["payment_indent_item"] = target.name
                 else:
                     ref.payment_indent_item = target.name
+
+        # Drop references that still point at no line of this indent (deleted
+        # lines, rows copied from another indent): they would otherwise be
+        # saved and counted against their Work Order.
+        bound = [ref for ref in self.references if ref.get("payment_indent_item") in items_by_name]
+        if len(bound) != len(self.references):
+            self.set("references", bound)
+        self._work_order_requests = {}
 
         refs_by_item = {}
         for ref in self.references:
@@ -223,6 +290,29 @@ class PaymentIndent(Document):
             self._validate_and_aggregate_references(row, row_refs, settings, privileged)
             # Sync any field updates back into self.references via the same objects
             # (we mutated them in place during aggregation).
+
+        # Requests above a Work Order's remaining value may be saved (the
+        # approver decides), but the requester is told straight away, summed
+        # over every line of this indent on that Work Order. At approval time
+        # validate_work_order_commitments blocks the overrun.
+        if getattr(self, "_action", None) == "submit":
+            return
+        for work_order, request in self._work_order_requests.items():
+            if request["requested"] <= request["remaining"] + WORK_ORDER_AMOUNT_TOLERANCE:
+                continue
+            frappe.msgprint(
+                _(
+                    "Row {0}: requested {1} is more than the {2} remaining on Work Order {3}. "
+                    "It cannot be approved above the remaining amount."
+                ).format(
+                    ", ".join(str(idx) for idx in request["rows"]),
+                    fmt_money(request["requested"]),
+                    fmt_money(request["remaining"]),
+                    work_order,
+                ),
+                title=_("Work Order Balance"),
+                indicator="orange",
+            )
 
     def normalize_reference_fields(self, row):
         if row.reference_type == "Purchase Invoice":
@@ -289,6 +379,14 @@ class PaymentIndent(Document):
                 row_refs = [seeded]
         if not row_refs:
             frappe.throw(_("At least one reference is required in row {0}.").format(row.idx))
+        strict = not self.flags.relaxed_reference_checks
+        if row.reference_type == "Work Order" and len(row_refs) > 1 and strict:
+            frappe.throw(
+                _(
+                    "Row {0}: only one Work Order can be referenced per payment line. "
+                    "Add a separate line for each Work Order."
+                ).format(row.idx)
+            )
 
         # Normalise dict entries so attribute reads/writes work uniformly.
         for i, ref in enumerate(row_refs):
@@ -307,6 +405,8 @@ class PaymentIndent(Document):
                 ref.reference_name,
                 expected_company=row.company,
                 row_idx=row.idx,
+                payment_indent_name=self.name,
+                strict=strict,
             )
             key = (details["reference_doctype"], details["reference_name"])
             if key in seen:
@@ -371,8 +471,9 @@ class PaymentIndent(Document):
         if not row.description and first_details and first_details.get("description"):
             row.description = first_details["description"]
 
+        tolerance = WORK_ORDER_AMOUNT_TOLERANCE if row.reference_type == "Work Order" else 0
         if (
-            flt(row.requested_amount) > agg_outstanding
+            flt(row.requested_amount) > agg_outstanding + tolerance
             and not (settings.allow_request_above_party_balance or privileged)
         ):
             frappe.throw(
@@ -380,6 +481,13 @@ class PaymentIndent(Document):
                     row.idx, agg_outstanding
                 )
             )
+
+        if row.reference_type == "Work Order":
+            request = self._work_order_requests.setdefault(
+                first.reference_name, {"rows": [], "requested": 0, "remaining": agg_outstanding}
+            )
+            request["rows"].append(row.idx)
+            request["requested"] += flt(row.requested_amount)
 
     def validate_no_reference_requirements(self):
         settings = get_settings()
@@ -417,6 +525,75 @@ class PaymentIndent(Document):
         if self.requested_by == frappe.session.user and not settings.allow_self_approval:
             frappe.throw(_("Self approval is disabled in Payment Indent Settings."))
         self.validate_approval_amounts()
+        self.validate_work_order_commitments(settings, lock=True)
+
+    def validate_work_order_commitments(self, settings=None, lock=False):
+        """Refuse to approve more against a Work Order than it has left after
+        the other Manager Approved indents. Lines are grouped by amendment
+        chain so WO-X and WO-X-1 on the same indent share one remaining value.
+        lock=True serialises concurrent approvals on the same Work Order."""
+        settings = settings or get_settings()
+        if not settings.work_order_doctype or not work_order_overcommitment_blocked():
+            return
+
+        rows_by_work_order = {}
+        for row in self.items:
+            if row.reference_type != "Work Order" or flt(row.approved_amount) <= 0:
+                continue
+            refs = [ref for ref in (self.references or []) if ref.get("payment_indent_item") == row.name]
+            if len(refs) != 1 or not refs[0].get("reference_name"):
+                continue
+            rows_by_work_order.setdefault(refs[0].get("reference_name"), []).append(row)
+
+        if not rows_by_work_order:
+            return
+
+        if lock:
+            # Lock every chain member in one sorted statement, so concurrent
+            # approvals always take Work Order locks in the same order.
+            members = set()
+            for work_order in rows_by_work_order:
+                members.update(get_work_order_chain(settings.work_order_doctype, work_order))
+            lock_work_orders(settings.work_order_doctype, members)
+
+        groups = {}
+        for work_order in sorted(rows_by_work_order):
+            commitment = get_work_order_commitment(
+                work_order, exclude_payment_indent=self.name, lock=lock, settings=settings
+            )
+            group = groups.setdefault(tuple(commitment.chain), {"commitment": commitment, "rows": []})
+            group["rows"].extend(rows_by_work_order[work_order])
+
+        for group in groups.values():
+            commitment = group["commitment"]
+            approved_here = sum(flt(row.approved_amount) for row in group["rows"])
+            if approved_here <= flt(commitment.remaining) + WORK_ORDER_AMOUNT_TOLERANCE:
+                continue
+            approved_in = ", ".join(
+                f"{entry.payment_indent} ({fmt_money(entry.amount)}{'*' if entry.estimated else ''})"
+                for entry in commitment.approved_entries
+            )
+            shared_note = (
+                _(" * a line shared with another Work Order, counted in full until its split is entered.")
+                if commitment.has_estimate
+                else ""
+            )
+            frappe.throw(
+                _(
+                    "Row {0}: cannot approve {1} against Work Order {2}. Only {3} remains "
+                    "(Work Order value {4}, already approved {5}{6}).{7}"
+                ).format(
+                    ", ".join(str(row.idx) for row in group["rows"]),
+                    fmt_money(approved_here),
+                    commitment.work_order,
+                    fmt_money(commitment.remaining),
+                    fmt_money(commitment.value),
+                    fmt_money(commitment.approved),
+                    f" in {approved_in}" if approved_in else "",
+                    shared_note,
+                ),
+                title=_("Work Order Over-committed"),
+            )
 
     def validate_approval_amounts(self):
         has_approved_row = False
@@ -934,6 +1111,7 @@ def save_approval_review(payment_indent_name, decisions, manager_remarks=None):
     rows_by_name = {row.name: row for row in doc.items}
     allowed_statuses = {"Pending", "Approved", "Partially Approved", "Rejected", "Hold"}
 
+    reviewed_rows = []
     for decision in decisions:
         row_name = decision.get("name")
         if row_name not in rows_by_name:
@@ -966,6 +1144,11 @@ def save_approval_review(payment_indent_name, decisions, manager_remarks=None):
         row.approved_amount = approved_amount
         row.row_status = status
         row.manager_remarks = remarks
+        reviewed_rows.append(row)
+
+    # Catch Work Order overruns while reviewing, not only at the final Approve.
+    doc.validate_work_order_commitments()
+    for row in reviewed_rows:
         row.db_update()
 
     doc.total_approved_amount = sum(flt(row.approved_amount) for row in doc.items)
@@ -980,7 +1163,9 @@ def save_approval_review(payment_indent_name, decisions, manager_remarks=None):
 
 
 @frappe.whitelist()
-def get_reference_details(reference_type, reference_name, party_type=None, party=None, company=None):
+def get_reference_details(
+    reference_type, reference_name, party_type=None, party=None, company=None, payment_indent_name=None
+):
     require_payment_indent_access()
     if reference_type == "Purchase Invoice":
         invoice = frappe.get_doc("Purchase Invoice", reference_name)
@@ -1051,7 +1236,9 @@ def get_reference_details(reference_type, reference_name, party_type=None, party
         }
 
     if reference_type == "Work Order":
-        return get_work_order_details(reference_name, party=party, company=company)
+        return get_work_order_details(
+            reference_name, party=party, company=company, payment_indent_name=payment_indent_name
+        )
 
     if reference_type == "No Reference":
         return {"description": "No Reference"}
@@ -1059,17 +1246,31 @@ def get_reference_details(reference_type, reference_name, party_type=None, party
     frappe.throw(_("Unsupported Reference Type: {0}").format(reference_type))
 
 
-def _fetch_reference_details(reference_type, reference_name, expected_company=None, row_idx=None):
+def _fetch_reference_details(
+    reference_type,
+    reference_name,
+    expected_company=None,
+    row_idx=None,
+    payment_indent_name=None,
+    strict=True,
+):
     """Thin wrapper used by validate_reference_documents: calls get_reference_details
     and appends the canonical reference_doctype / reference_name back into the dict
-    so the caller can persist them to the child entry without re-deriving."""
+    so the caller can persist them to the child entry without re-deriving.
+    strict=False skips the Work Order docstatus check (Reject / Return)."""
     if not reference_name:
         frappe.throw(_("Reference is mandatory in row {0}.").format(row_idx or ""))
-    details = get_reference_details(
-        reference_type=reference_type,
-        reference_name=reference_name,
-        company=expected_company,
-    ) or {}
+    if reference_type == "Work Order":
+        details = get_work_order_details(
+            reference_name, company=expected_company, payment_indent_name=payment_indent_name, strict=strict
+        )
+    else:
+        details = get_reference_details(
+            reference_type=reference_type,
+            reference_name=reference_name,
+            company=expected_company,
+            payment_indent_name=payment_indent_name,
+        ) or {}
     if reference_type == "Purchase Invoice":
         ref_doctype = "Purchase Invoice"
     elif reference_type == "Purchase Order":
@@ -1085,7 +1286,7 @@ def _fetch_reference_details(reference_type, reference_name, expected_company=No
     return details
 
 
-def get_work_order_details(reference_name, party=None, company=None):
+def get_work_order_details(reference_name, party=None, company=None, payment_indent_name=None, strict=True):
     settings = get_settings()
     if not settings.work_order_doctype:
         frappe.throw(_("Work Order integration is not configured in Payment Indent Settings."))
@@ -1105,23 +1306,25 @@ def get_work_order_details(reference_name, party=None, company=None):
             frappe.throw(_("Configured Work Order {0} field '{1}' does not exist on {2}.").format(label, fieldname, settings.work_order_doctype))
 
     work_order = frappe.get_doc(settings.work_order_doctype, reference_name)
+    if strict:
+        validate_work_order_docstatus(meta, work_order)
     if settings.work_order_status_field and settings.work_order_required_status:
         status = work_order.get(settings.work_order_status_field)
         if status != settings.work_order_required_status:
             frappe.throw(_("Work Order {0} must have status {1}.").format(reference_name, settings.work_order_required_status))
 
     configured_party = work_order.get(settings.work_order_party_field) if settings.work_order_party_field else None
-    if party and configured_party and party != configured_party:
+    resolved = resolve_work_order_party(meta, settings.work_order_party_field, configured_party)
+    # A row may carry the resolved party ID or, from older saves, the raw value.
+    if party and configured_party and party not in {configured_party, resolved.party if resolved else None}:
         frappe.throw(_("Work Order {0} does not belong to selected party.").format(reference_name))
     configured_company = work_order.get(settings.work_order_company_field) if settings.work_order_company_field else None
     if company and configured_company and company != configured_company:
         frappe.throw(_("Work Order {0} does not belong to selected company.").format(reference_name))
 
-    resolved = None
-    if configured_party:
-        matches = find_party_matches(configured_party, limit=2)
-        if len(matches) == 1:
-            resolved = matches[0]
+    commitment = get_work_order_commitment(
+        reference_name, exclude_payment_indent=payment_indent_name, settings=settings
+    )
 
     return frappe._dict(
         {
@@ -1132,12 +1335,354 @@ def get_work_order_details(reference_name, party=None, company=None):
             "party_search": resolved.display if resolved else configured_party,
             "company": configured_company,
             "reference_amount": flt(work_order.get(settings.work_order_amount_field)) if settings.work_order_amount_field else 0,
-            "outstanding_amount": flt(work_order.get(settings.work_order_balance_field)) if settings.work_order_balance_field else 0,
+            "outstanding_amount": commitment.remaining,
+            "previously_approved": commitment.approved,
+            "pending_other": commitment.pending,
             "reference_date": work_order.get(settings.work_order_date_field) if settings.work_order_date_field else None,
             "status": work_order.get(settings.work_order_status_field) if settings.work_order_status_field else None,
             "description": work_order.get(settings.work_order_description_field) if settings.work_order_description_field else None,
         }
     )
+
+
+def validate_work_order_docstatus(meta, work_order):
+    """A cancelled or draft Work Order cannot be paid against. The dialog picker
+    already offers submitted ones only; this covers saves of older lines."""
+    if not meta.is_submittable or cint(work_order.docstatus) == 1:
+        return
+    if cint(work_order.docstatus) == 2:
+        amendment = None
+        if meta.has_field("amended_from"):
+            amendment = frappe.db.get_value(
+                work_order.doctype, {"amended_from": work_order.name, "docstatus": 1}, "name"
+            )
+        if amendment:
+            frappe.throw(_("Work Order {0} is cancelled. Use its amendment {1}.").format(work_order.name, amendment))
+        frappe.throw(_("Work Order {0} is cancelled.").format(work_order.name))
+    frappe.throw(_("Work Order {0} must be submitted.").format(work_order.name))
+
+
+def get_work_order_outstanding_basis(settings=None):
+    settings = settings or get_settings()
+    return settings.get("work_order_outstanding_basis") or WORK_ORDER_BASIS_APPROVED
+
+
+def work_order_overcommitment_blocked():
+    # Read the stored row: a loaded Single turns a never-stored Check into 0,
+    # but an unset value here must mean the default (block).
+    stored = frappe.db.sql(
+        "select value from `tabSingles` where doctype = %s and field = %s",
+        ("Payment Indent Settings", "block_work_order_overcommitment"),
+    )
+    return True if not stored else bool(cint(stored[0][0]))
+
+
+def lock_work_orders(doctype, names):
+    """FOR UPDATE on the given Work Order rows, in name order."""
+    if names:
+        frappe.db.sql(
+            f"select name from `tab{doctype}` where name in %s order by name for update", (tuple(sorted(names)),)
+        )
+
+
+def get_work_order_chain(doctype, name):
+    """The Work Order plus every original / amendment linked to it through
+    amended_from, so approvals made against a cancelled original still count
+    against its amendment."""
+    if not frappe.get_meta(doctype).has_field("amended_from"):
+        return [name]
+
+    chain = {name}
+    current = name
+    while current:
+        current = frappe.db.get_value(doctype, current, "amended_from")
+        if not current or current in chain:
+            break
+        chain.add(current)
+
+    frontier = list(chain)
+    while frontier:
+        children = frappe.get_all(doctype, filters={"amended_from": ["in", frontier]}, pluck="name")
+        frontier = [child for child in children if child not in chain]
+        chain.update(frontier)
+    return sorted(chain)
+
+
+def get_work_order_commitment(work_order, exclude_payment_indent=None, lock=False, settings=None):
+    """How much of a Work Order is already committed through Payment Indents.
+
+    value      Work Order amount (work_order_amount_field) of the submitted
+               version in its amendment chain
+    approved   approved on other Manager Approved indents, across the chain
+    pending    requested on other indents waiting for manager approval
+    remaining  what may still be approved: value - approved, or the configured
+               balance field when the outstanding basis says so
+
+    lock=True takes FOR UPDATE on the Work Order rows and re-reads indent status
+    and approved amounts with locking reads, which see the latest committed data
+    even under REPEATABLE READ. Two approvals on one Work Order then serialise."""
+    settings = settings or get_settings()
+    doctype = settings.work_order_doctype
+    basis = get_work_order_outstanding_basis(settings)
+    if basis == WORK_ORDER_BASIS_APPROVED and not settings.work_order_amount_field:
+        frappe.throw(_("Set Work Order Amount Field in Payment Indent Settings."))
+    if basis == WORK_ORDER_BASIS_BALANCE_FIELD and not settings.work_order_balance_field:
+        frappe.throw(_("Set Work Order Balance Field in Payment Indent Settings."))
+
+    meta = frappe.get_meta(doctype)
+    chain = get_work_order_chain(doctype, work_order)
+    lock_clause = " lock in share mode" if lock else ""
+
+    if lock:
+        lock_work_orders(doctype, chain)
+
+    active = work_order
+    if meta.is_submittable and len(chain) > 1:
+        submitted = frappe.get_all(
+            doctype, filters={"name": ["in", chain], "docstatus": 1}, pluck="name", order_by="creation desc"
+        )
+        if submitted:
+            active = submitted[0]
+    value = flt(frappe.db.get_value(doctype, active, settings.work_order_amount_field)) if settings.work_order_amount_field else 0
+
+    # allocated_amount only exists once the schema is migrated.
+    has_allocation = frappe.db.has_column("Payment Indent Item Reference", "allocated_amount")
+    allocated = "{0}.allocated_amount" if has_allocation else "0"
+
+    refs = frappe.db.sql(
+        f"""
+        select r.name, r.parent, r.payment_indent_item, r.reference_amount,
+            {allocated.format("r")} as allocated_amount
+        from `tabPayment Indent Item Reference` r
+        where r.parenttype = 'Payment Indent'
+            and r.reference_doctype = %s
+            and r.reference_name in %s
+            and r.parent != %s
+        """,
+        (doctype, tuple(chain), exclude_payment_indent or ""),
+        as_dict=True,
+    )
+
+    approved_entries = []
+    pending_entries = []
+    item_names = tuple({ref.payment_indent_item for ref in refs if ref.payment_indent_item})
+    if refs and item_names:
+        parents = {
+            row.name: row
+            for row in frappe.db.sql(
+                f"""select name, docstatus, workflow_state, manager_approved_on
+                from `tabPayment Indent` where name in %s{lock_clause}""",
+                (tuple({ref.parent for ref in refs}),),
+                as_dict=True,
+            )
+        }
+        items = {
+            row.name: row
+            for row in frappe.db.sql(
+                f"""select name, parent, reference_type, requested_amount, approved_amount, row_status
+                from `tabPayment Indent Item` where name in %s{lock_clause}""",
+                (item_names,),
+                as_dict=True,
+            )
+        }
+        # Only Work Order references saved on the line's own indent count as
+        # siblings; stale copies elsewhere must not dilute the line's share.
+        siblings = {}
+        for sibling in frappe.db.sql(
+            f"""select s.name, s.payment_indent_item, s.reference_amount, {allocated.format("s")} as allocated_amount
+            from `tabPayment Indent Item Reference` s
+            join `tabPayment Indent Item` si on si.name = s.payment_indent_item and si.parent = s.parent
+            where s.parenttype = 'Payment Indent'
+                and s.reference_doctype = %s
+                and s.payment_indent_item in %s""",
+            (doctype, item_names),
+            as_dict=True,
+        ):
+            siblings.setdefault(sibling.payment_indent_item, []).append(sibling)
+
+        for ref in refs:
+            item = items.get(ref.payment_indent_item)
+            parent = parents.get(ref.parent)
+            # Skip references left behind by deleted lines or lines whose type changed.
+            if not item or not parent or item.parent != ref.parent or item.reference_type != "Work Order":
+                continue
+            approved_share, requested_share, estimated = _work_order_line_shares(
+                ref, item, siblings.get(item.name) or [ref]
+            )
+            entry = {
+                "payment_indent": ref.parent,
+                "manager_approved_on": parent.manager_approved_on,
+                "estimated": estimated,
+            }
+            if cint(parent.docstatus) == 1 and parent.workflow_state == "Manager Approved":
+                if approved_share > 0:
+                    approved_entries.append(frappe._dict(entry, amount=flt(approved_share, 2)))
+            elif (
+                cint(parent.docstatus) == 0
+                and parent.workflow_state == "Pending Manager Approval"
+                and item.row_status not in ("Rejected", "Hold")
+                and requested_share > 0
+            ):
+                pending_entries.append(frappe._dict(entry, amount=flt(requested_share, 2)))
+
+    approved_entries.sort(key=lambda entry: str(entry.manager_approved_on or ""))
+    approved = flt(sum(entry.amount for entry in approved_entries), 2)
+    pending = flt(sum(entry.amount for entry in pending_entries), 2)
+
+    if basis == WORK_ORDER_BASIS_BALANCE_FIELD:
+        remaining = flt(frappe.db.get_value(doctype, active, settings.work_order_balance_field))
+    else:
+        remaining = value - approved
+
+    return frappe._dict(
+        {
+            "work_order": work_order,
+            "chain": chain,
+            "value": flt(value, 2),
+            "approved": approved,
+            "approved_entries": approved_entries,
+            "pending": pending,
+            "pending_entries": pending_entries,
+            "remaining": flt(remaining, 2),
+            "has_estimate": any(entry.estimated for entry in approved_entries + pending_entries),
+        }
+    )
+
+
+def _work_order_line_shares(ref, item, siblings):
+    """Split a line's approved / requested amount across the Work Orders on it.
+
+    New lines carry one Work Order. Legacy lines with several:
+    - allocated_amount on each reference, when those add up to the approved amount;
+    - else, when the approved amount equals the Work Orders' combined value, each
+      Work Order gets its full value;
+    - else the split is unknown, so each Work Order is charged the line amount
+      up to its own value (flagged). This can block a payment the real split
+      would allow, but never creates headroom that does not exist."""
+    approved = flt(item.approved_amount)
+    requested = flt(item.requested_amount)
+    if len(siblings) <= 1:
+        return approved, requested, False
+
+    value = flt(ref.reference_amount)
+    requested_share = min(requested, value) if value else requested
+    allocated_total = sum(flt(sibling.allocated_amount) for sibling in siblings)
+    if allocated_total > 0 and abs(allocated_total - approved) <= WORK_ORDER_AMOUNT_TOLERANCE:
+        return flt(ref.allocated_amount), requested_share, False
+    total_value = sum(flt(sibling.reference_amount) for sibling in siblings)
+    if total_value and abs(total_value - approved) <= WORK_ORDER_AMOUNT_TOLERANCE:
+        return value, requested_share, False
+    return (min(approved, value) if value else approved), requested_share, True
+
+
+@frappe.whitelist()
+def get_work_order_commitments(payment_indent_name):
+    """Live Work Order figures for each Work Order line of an indent, used by
+    the Review & Approve dialog (the stored outstanding is a save-time snapshot).
+    Approvers only: the result names other users' indents."""
+    if not user_can_edit_approval_fields():
+        frappe.throw(_("Only Payment Approvers can view Work Order commitments."), frappe.PermissionError)
+    doc = frappe.get_doc("Payment Indent", payment_indent_name)
+    doc.check_permission("read")
+    settings = get_settings()
+    if not settings.work_order_doctype:
+        return {}
+
+    result = {}
+    for row in doc.items:
+        if row.reference_type != "Work Order":
+            continue
+        work_orders = [
+            ref.reference_name
+            for ref in (doc.references or [])
+            if ref.payment_indent_item == row.name and ref.reference_name
+        ]
+        result[row.name] = [
+            get_work_order_commitment(work_order, exclude_payment_indent=doc.name, settings=settings)
+            for work_order in work_orders
+            if frappe.db.exists(settings.work_order_doctype, work_order)
+        ]
+    return result
+
+
+@frappe.whitelist(methods=["POST"])
+def approve_payment_indent(payment_indent_name):
+    """Approve from the Review dialog (the approval OTP travels in the request
+    as approval_otp). Two approvals on the same Work Order serialise on its row
+    lock; when InnoDB picks this request as the deadlock victim, retry in a
+    fresh transaction, which then sees the other approval."""
+    from frappe.model.workflow import apply_workflow
+
+    attempts = 3
+    for attempt in range(attempts):
+        try:
+            return apply_workflow({"doctype": "Payment Indent", "name": payment_indent_name}, "Approve")
+        except frappe.QueryDeadlockError:
+            frappe.db.rollback()
+            frappe.local.message_log = []
+            if attempt == attempts - 1:
+                frappe.throw(
+                    _("Another approval on the same Work Order was being saved at the same time. Please try again.")
+                )
+
+
+def resolve_work_order_party(meta, party_field, value):
+    """Map the Work Order's party value to one ERPNext party. A Link field to a
+    party type is taken as is; otherwise an exact name match wins over the
+    substring search, which only counts when it finds a single party."""
+    if not value or not isinstance(value, str):
+        return None
+
+    field = meta.get_field(party_field) if party_field else None
+    if field and field.fieldtype == "Link" and field.options in get_searchable_party_types():
+        if frappe.db.exists(field.options, value):
+            party_name = get_party_name(field.options, value) or value
+            return frappe._dict(
+                {
+                    "party_type": field.options,
+                    "party": value,
+                    "party_name": party_name,
+                    "display": get_party_display(field.options, value, party_name),
+                }
+            )
+
+    exact = find_exact_party_matches(value)
+    if len(exact) == 1:
+        return exact[0]
+    if exact:
+        return None
+    matches = find_party_matches(value, limit=2)
+    return matches[0] if len(matches) == 1 else None
+
+
+def find_exact_party_matches(txt):
+    """Parties whose ID or name field equals txt (case-insensitive under the
+    default collation). No substring matching."""
+    txt = (txt or "").strip()
+    if not txt:
+        return []
+
+    matches = []
+    for party_type, fields in get_searchable_party_types().items():
+        search_fields = ["name", *[field for field in fields if field != "name"]]
+        conditions = " or ".join(f"`{field}` = %s" for field in search_fields)
+        name_field = fields[0] if fields[0] != "name" else "name"
+        for row in frappe.db.sql(
+            f"select name, `{name_field}` as party_name from `tab{party_type}` where {conditions} limit 5",
+            [txt] * len(search_fields),
+            as_dict=True,
+        ):
+            matches.append(
+                frappe._dict(
+                    {
+                        "party_type": party_type,
+                        "party": row.name,
+                        "party_name": row.party_name or row.name,
+                        "display": get_party_display(party_type, row.name, row.party_name),
+                    }
+                )
+            )
+    return matches
 
 
 @frappe.whitelist()
